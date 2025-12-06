@@ -686,8 +686,21 @@ void CMagicCupGameView::DrawHUD()
     lines[lineCount++] = buf2;
 
     if ((m_gameState == GAME_RESULT || m_gameState == GAME_NONE) && m_selectedCup >= 0) {
-        if (m_gameWon) sprintf_s(buf3, "*** œ≈–≈ÃŒ√¿! ***");
-        else           sprintf_s(buf3, "œ–Œ√–¿ÿ ( ÛÎ¸Í‡: %d)", m_ballPosition + 1);
+        if (m_gameWon) {
+            sprintf_s(buf3, "*** œ≈–≈ÃŒ√¿! ***");
+        }
+        else
+        {
+            int ballPosIndex = -1;
+            float ballX = m_cupPositions[m_ballPosition][0];
+
+            if (ballX < -1.0f) ballPosIndex = 1;
+            else if (ballX > 1.0f) ballPosIndex = 3;
+            else ballPosIndex = 2;
+
+            sprintf_s(buf3, "œ–Œ√–¿ÿ ( ÛÎ¸Í‡: %d)", ballPosIndex);
+        }
+
         lines[lineCount++] = buf3;
     }
 
@@ -873,11 +886,21 @@ void CMagicCupGameView::UpdateAnimation()
                 int currentUserId = pApp->m_nCurrentUserID;
 
                 if (currentUserId != -1) {
+                    int realBallPos = 2;
+                    float ballX = m_cupPositions[m_ballPosition][0];
+                    if (ballX < -1.0f) realBallPos = 1;
+                    else if (ballX > 1.0f) realBallPos = 3;
+
+                    int realUserPos = 2;
+                    float userX = m_cupPositions[m_selectedCup][0];
+                    if (userX < -1.0f) realUserPos = 1;
+                    else if (userX > 1.0f) realUserPos = 3;
+
                     DBHelper::GetInstance().AddGameSession(
                         currentUserId,
                         m_selectedLevel.id,
-                        m_ballPosition + 1,
-                        m_selectedCup + 1,
+                        realBallPos,
+                        realUserPos,
                         m_gameWon
                     );
                 }
@@ -888,7 +911,7 @@ void CMagicCupGameView::UpdateAnimation()
         }
         else
         {
-            if (currentTime - m_stateStartTime > 5000) {
+            if (currentTime - m_stateStartTime > 3000) {
                 m_gameState = GAME_NONE;
                 m_stateStartTime = GetTickCount();
                 m_isAnimating = true;
