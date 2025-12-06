@@ -20,6 +20,7 @@ public:
 	CMagicCupGameApp() noexcept;
 
 	int m_nCurrentUserID = -1;
+	bool m_bIsAdmin = false;
 // Переопределение
 public:
 	virtual BOOL InitInstance();

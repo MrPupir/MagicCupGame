@@ -125,6 +125,7 @@ protected:
 public:
     DifficultyLevel m_selectedLevel;
     afx_msg void OnSettings();
+    afx_msg void OnAdmin();
 };
 
 #ifndef _DEBUG  // версия отладки в MagicCupGameView.cpp

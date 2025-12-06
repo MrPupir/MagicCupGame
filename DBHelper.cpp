@@ -97,25 +97,20 @@ std::vector<DifficultyLevel> DBHelper::GetDifficultyLevels()
 
     CRecordset rs(&m_db);
     try {
-        rs.Open(CRecordset::forwardOnly, _T("SELECT difficulty_id, level_name, shuffle_count, animation_speed_ms FROM difficulty_levels ORDER BY difficulty_id ASC"), CRecordset::readOnly);
+        rs.Open(CRecordset::forwardOnly, _T("SELECT difficulty_id, level_name, shuffle_count, animation_speed_ms FROM difficulty_levels ORDER BY sort_order ASC"), CRecordset::readOnly);
 
         while (!rs.IsEOF()) {
             DifficultyLevel lvl;
             CString val;
-
             rs.GetFieldValue((short)0, val); lvl.id = _ttoi(val);
             rs.GetFieldValue((short)1, lvl.name);
             rs.GetFieldValue((short)2, val); lvl.shuffleCount = _ttoi(val);
             rs.GetFieldValue((short)3, val); lvl.animationSpeed = _ttoi(val);
-
             levels.push_back(lvl);
             rs.MoveNext();
         }
     }
-    catch (CDBException* e) {
-        AfxMessageBox(e->m_strError);
-        e->Delete();
-    }
+    catch (CDBException* e) { e->Delete(); }
     return levels;
 }
 
@@ -177,6 +172,116 @@ bool DBHelper::AddGameSession(int userId, int difficultyId, int ballPos, int sel
     }
     catch (CDBException* e) {
         AfxMessageBox(_T("Помилка запису статистики: ") + e->m_strError);
+        e->Delete();
+        return false;
+    }
+}
+
+bool DBHelper::IsAdminUser(int userId)
+{
+	if (!Connect()) return false;
+	CRecordset rs(&m_db);
+	try {
+		CString query;
+		query.Format(_T("SELECT role_id FROM users WHERE user_id = %d"), userId);
+		rs.Open(CRecordset::forwardOnly, query, CRecordset::readOnly);
+		if (!rs.IsEOF()) {
+			CString val;
+			rs.GetFieldValue((short)0, val);
+			int roleId = _ttoi(val);
+			return (roleId == 1);
+		}
+	}
+	catch (CDBException* e) {
+		AfxMessageBox(_T("Помилка перевірки ролі користувача: ") + e->m_strError);
+		e->Delete();
+	}
+	return false;
+}
+
+bool DBHelper::AddDifficultyLevel(CString name, int count, int speed)
+{
+    if (!Connect()) return false;
+
+    try {
+        CString query;
+        query.Format(_T("INSERT INTO difficulty_levels (level_name, shuffle_count, animation_speed_ms) VALUES ('%s', %d, %d)"),
+            name, count, speed);
+
+        m_db.ExecuteSQL(query);
+        return true;
+    }
+    catch (CDBException* e) {
+        AfxMessageBox(_T("Помилка додавання рівня: ") + e->m_strError);
+        e->Delete();
+        return false;
+    }
+}
+
+bool DBHelper::UpdateDifficultyLevel(int id, CString name, int count, int speed)
+{
+    if (!Connect()) return false;
+
+    try {
+        CString query;
+        query.Format(_T("UPDATE difficulty_levels SET level_name='%s', shuffle_count=%d, animation_speed_ms=%d WHERE difficulty_id=%d"),
+            name, count, speed, id);
+
+        m_db.ExecuteSQL(query);
+        return true;
+    }
+    catch (CDBException* e) {
+        AfxMessageBox(_T("Помилка оновлення рівня: ") + e->m_strError);
+        e->Delete();
+        return false;
+    }
+}
+
+bool DBHelper::DeleteDifficultyLevel(int id)
+{
+    if (!Connect()) return false;
+
+    try {
+        CString query;
+        query.Format(_T("DELETE FROM difficulty_levels WHERE difficulty_id=%d"), id);
+
+        m_db.ExecuteSQL(query);
+        return true;
+    }
+    catch (CDBException* e) {
+        AfxMessageBox(_T("Неможливо видалити рівень (можливо, він використовується в історії ігор): ") + e->m_strError);
+        e->Delete();
+        return false;
+    }
+}
+
+bool DBHelper::SwapDifficultyOrder(int id1, int id2)
+{
+    if (!Connect()) return false;
+    try {
+        CString query;
+        int order1 = 0, order2 = 0;
+
+        CRecordset rs(&m_db);
+        query.Format(_T("SELECT sort_order FROM difficulty_levels WHERE difficulty_id=%d"), id1);
+        rs.Open(CRecordset::forwardOnly, query, CRecordset::readOnly);
+        if (!rs.IsEOF()) { CString v; rs.GetFieldValue((short)0, v); order1 = _ttoi(v); }
+        rs.Close();
+
+        query.Format(_T("SELECT sort_order FROM difficulty_levels WHERE difficulty_id=%d"), id2);
+        rs.Open(CRecordset::forwardOnly, query, CRecordset::readOnly);
+        if (!rs.IsEOF()) { CString v; rs.GetFieldValue((short)0, v); order2 = _ttoi(v); }
+        rs.Close();
+
+        query.Format(_T("UPDATE difficulty_levels SET sort_order=%d WHERE difficulty_id=%d"), order2, id1);
+        m_db.ExecuteSQL(query);
+
+        query.Format(_T("UPDATE difficulty_levels SET sort_order=%d WHERE difficulty_id=%d"), order1, id2);
+        m_db.ExecuteSQL(query);
+
+        return true;
+    }
+    catch (CDBException* e) {
         e->Delete();
         return false;
     }

@@ -30,6 +30,7 @@
 #pragma setlocale("RUSSIAN")
 
 #include "SettingsDlg.h"
+#include "AdminDlg.h"
 
 // CMagicCupGameView
 
@@ -50,6 +51,7 @@ BEGIN_MESSAGE_MAP(CMagicCupGameView, CView)
     ON_WM_KEYDOWN()
     ON_WM_MOUSEWHEEL()
     ON_COMMAND(ID_SETTINGS, &CMagicCupGameView::OnSettings)
+    ON_COMMAND(ID_ADMIN, &CMagicCupGameView::OnAdmin)
 END_MESSAGE_MAP()
 
 // Создание или уничтожение CMagicCupGameView
@@ -1219,4 +1221,10 @@ void CMagicCupGameView::OnSettings()
             m_selectedLevel.animationSpeed);
         AfxMessageBox(str);
     }
+}
+
+void CMagicCupGameView::OnAdmin()
+{
+	CAdminDlg dlg;
+	dlg.DoModal();
 }

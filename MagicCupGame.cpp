@@ -85,6 +85,8 @@ BOOL CMagicCupGameApp::InitInstance()
 		return FALSE;
 	}
 
+	m_bIsAdmin = DBHelper::GetInstance().IsAdminUser(m_nCurrentUserID);
+
 	// Инициализация библиотек OLE
 	if (!AfxOleInit())
 	{
@@ -140,6 +142,14 @@ BOOL CMagicCupGameApp::InitInstance()
 	// Одно и только одно окно было инициализировано, поэтому отобразите и обновите его
 	m_pMainWnd->ShowWindow(SW_SHOW);
 	m_pMainWnd->UpdateWindow();
+
+	CMainFrame* pMainFrame = (CMainFrame*)m_pMainWnd;
+	if (m_bIsAdmin)
+	{
+		pMainFrame->GetMenu()->EnableMenuItem(ID_ADMIN, MF_BYCOMMAND | MF_ENABLED);
+		pMainFrame->UpdateData(FALSE);
+	}
+
 	return TRUE;
 }
 

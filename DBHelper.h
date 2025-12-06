@@ -26,6 +26,11 @@ public:
     bool SaveUserDifficulty(int userId, int difficultyId);
     int GetUserDifficulty(int userId);
     bool AddGameSession(int userId, int difficultyId, int ballPos, int selectedCup, bool isWin);
+	bool IsAdminUser(int userId);
+    bool AddDifficultyLevel(CString name, int count, int speed);
+    bool UpdateDifficultyLevel(int id, CString name, int count, int speed);
+    bool DeleteDifficultyLevel(int id);
+    bool SwapDifficultyOrder(int id1, int id2);
 private:
     CDatabase m_db;
     DBHelper() {};
