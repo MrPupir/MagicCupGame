@@ -185,15 +185,10 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="AdminDlg.h" />
+    <ClInclude Include="ChartControl.h" />
     <ClInclude Include="DBHelper.h" />
     <ClInclude Include="framework.h" />
-    <ClInclude Include="GL\GL.H" />
     <ClInclude Include="GL\GLEXT.H" />
-    <ClInclude Include="GL\GLTools.h" />
-    <ClInclude Include="GL\GLU.H" />
-    <ClInclude Include="GL\glut.h" />
-    <ClInclude Include="GL\OpenGLSB.h" />
-    <ClInclude Include="GL\WGLEXT.H" />
     <ClInclude Include="LoginDlg.h" />
     <ClInclude Include="MagicCupGame.h" />
     <ClInclude Include="MagicCupGameDoc.h" />
@@ -208,6 +203,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="AdminDlg.cpp" />
+    <ClCompile Include="ChartControl.cpp" />
     <ClCompile Include="DBHelper.cpp" />
     <ClCompile Include="LoginDlg.cpp" />
     <ClCompile Include="MagicCupGame.cpp" />

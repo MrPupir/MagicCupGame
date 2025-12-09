@@ -1,6 +1,7 @@
 ﻿#pragma once
 #include "afxdialogex.h"
 #include <vector>
+#include "ChartControl.h"
 
 // Диалоговое окно CAdminDlg
 
@@ -30,11 +31,16 @@ public:
 	CEdit m_edtDiffCount;
 	CEdit m_edtDiffSpeed;
 
+	ChartControl m_chartControl;
+	CComboBox m_comboChartType;
+	CButton m_check3D;
+
 	int m_nSelectedDiffID = -1;
 
 	void UpdateVisibility();
 	void ShowControls(const std::vector<int>& ids, BOOL bShow);
 	void RefreshDifficultyList();
+	void RefreshChart();
 
 	afx_msg void OnCbnSelchangeComboAdmMode();
 	afx_msg void OnLbnSelchangeLstDiffLevels();
@@ -43,5 +49,14 @@ public:
 	afx_msg void OnBnClickedBtnDiffDel();
 	afx_msg void OnBnClickedBtnDiffUp();
 	afx_msg void OnBnClickedBtnDiffDown();
+
+	afx_msg void OnBnClickedBtnSortAsc();
+	afx_msg void OnBnClickedBtnSortDesc();
+	afx_msg void OnBnClickedCheck3d();
+	afx_msg void OnBnClickedBtnExpExcel();
+	afx_msg void OnBnClickedBtnExpWord();
+	afx_msg void OnBnClickedBtnColors();
+	afx_msg void OnCbnSelchangeComboChartType();
+
 	virtual void OnOK();
 };

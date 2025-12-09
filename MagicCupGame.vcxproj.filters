@@ -42,25 +42,7 @@
     <ClInclude Include="pch.h">
       <Filter>Файлы заголовков</Filter>
     </ClInclude>
-    <ClInclude Include="GL\GL.H">
-      <Filter>Файлы заголовков\GL</Filter>
-    </ClInclude>
     <ClInclude Include="GL\GLEXT.H">
-      <Filter>Файлы заголовков\GL</Filter>
-    </ClInclude>
-    <ClInclude Include="GL\GLTools.h">
-      <Filter>Файлы заголовков\GL</Filter>
-    </ClInclude>
-    <ClInclude Include="GL\GLU.H">
-      <Filter>Файлы заголовков\GL</Filter>
-    </ClInclude>
-    <ClInclude Include="GL\glut.h">
-      <Filter>Файлы заголовков\GL</Filter>
-    </ClInclude>
-    <ClInclude Include="GL\OpenGLSB.h">
-      <Filter>Файлы заголовков\GL</Filter>
-    </ClInclude>
-    <ClInclude Include="GL\WGLEXT.H">
       <Filter>Файлы заголовков\GL</Filter>
     </ClInclude>
     <ClInclude Include="stb_image.h">
@@ -79,6 +61,9 @@
       <Filter>Файлы заголовков</Filter>
     </ClInclude>
     <ClInclude Include="AdminDlg.h">
+      <Filter>Файлы заголовков</Filter>
+    </ClInclude>
+    <ClInclude Include="ChartControl.h">
       <Filter>Файлы заголовков</Filter>
     </ClInclude>
   </ItemGroup>
@@ -111,6 +96,9 @@
       <Filter>Исходные файлы</Filter>
     </ClCompile>
     <ClCompile Include="AdminDlg.cpp">
+      <Filter>Исходные файлы</Filter>
+    </ClCompile>
+    <ClCompile Include="ChartControl.cpp">
       <Filter>Исходные файлы</Filter>
     </ClCompile>
   </ItemGroup>
