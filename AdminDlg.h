@@ -33,6 +33,10 @@ public:
 
 	ChartControl m_chartControl;
 	CComboBox m_comboChartType;
+	CComboBox m_comboChartMetric;
+	CComboBox m_comboChartFilter;
+	CStatic m_lblMetric;
+	CStatic m_lblFilter;
 	CButton m_check3D;
 
 	int m_nSelectedDiffID = -1;
@@ -40,7 +44,12 @@ public:
 	void UpdateVisibility();
 	void ShowControls(const std::vector<int>& ids, BOOL bShow);
 	void RefreshDifficultyList();
+
+	void SetupChartOptions();
+	void UpdateMetricCombo();
+	void UpdateFilterCombo();
 	void RefreshChart();
+	CString GetCurrentMetricDBName();
 
 	afx_msg void OnCbnSelchangeComboAdmMode();
 	afx_msg void OnLbnSelchangeLstDiffLevels();
@@ -57,6 +66,8 @@ public:
 	afx_msg void OnBnClickedBtnExpWord();
 	afx_msg void OnBnClickedBtnColors();
 	afx_msg void OnCbnSelchangeComboChartType();
+	afx_msg void OnCbnSelchangeComboChartMetric();
+	afx_msg void OnCbnSelchangeComboChartFilter();
 
 	virtual void OnOK();
 };

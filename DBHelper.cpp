@@ -4,12 +4,33 @@
 #include <string>
 #include <vector>
 
-CString HashPassword(CString password)
+const unsigned int CRC32_POLYNOMIAL = 0xEDB88320;
+
+CString HashPassword(const CString& password)
 {
-    std::wstring str(password.GetString());
-    size_t hash = std::hash<std::wstring>{}(str);
+    CT2A asciiData(password, CP_UTF8);
+    const unsigned char* pData = (const unsigned char*)asciiData.m_psz;
+    size_t length = strlen(asciiData);
+
+    unsigned int crc = 0xFFFFFFFF;
+
+    for (size_t i = 0; i < length; ++i)
+    {
+        crc ^= pData[i];
+        for (int j = 0; j < 8; ++j)
+        {
+            if (crc & 1)
+                crc = (crc >> 1) ^ CRC32_POLYNOMIAL;
+            else
+                crc = (crc >> 1);
+        }
+    }
+
+    crc = ~crc;
+
     CString strHash;
-    strHash.Format(_T("%zu"), hash);
+    strHash.Format(_T("%08X"), crc);
+
     return strHash;
 }
 
@@ -26,6 +47,7 @@ bool DBHelper::Connect()
         e->Delete();
         return false;
     }
+
 }
 
 void DBHelper::Disconnect()
@@ -441,4 +463,388 @@ bool DBHelper::GetGameSettings(int userId, GameSettings& s)
         e->Delete();
     }
     return false;
+}
+
+std::vector<CString> DBHelper::GetUniqueDifficultyNames()
+{
+    std::vector<CString> names;
+    if (!Connect()) return names;
+    CRecordset rs(&m_db);
+    try {
+        rs.Open(CRecordset::forwardOnly, _T("SELECT level_name FROM difficulty_levels GROUP BY level_name ORDER BY MIN(sort_order)"), CRecordset::readOnly);
+        while (!rs.IsEOF()) {
+            CString val;
+            rs.GetFieldValue((short)0, val);
+            if (!val.IsEmpty()) names.push_back(val);
+            rs.MoveNext();
+        }
+    }
+    catch (CDBException* e) { e->Delete(); }
+    return names;
+}
+
+std::vector<ChartEntry> DBHelper::GetMonthlyStats(CString metric)
+{
+    std::vector<ChartEntry> data;
+    if (!Connect()) return data;
+    CRecordset rs(&m_db);
+    try {
+        if (metric != "total_games" && metric != "total_wins" && metric != "top_cup" &&
+            metric != "top_ball" && metric != "total_registrations") return data;
+
+        CString query;
+        query.Format(_T("SELECT stat_date, %s FROM v_monthly_detailed_stats ORDER BY STR_TO_DATE(stat_date, '%%d.%%m.%%Y') ASC LIMIT 30"), metric);
+
+        rs.Open(CRecordset::forwardOnly, query, CRecordset::readOnly);
+        while (!rs.IsEOF()) {
+            ChartEntry entry;
+            CString valStr;
+            rs.GetFieldValue((short)0, entry.label);
+            rs.GetFieldValue((short)1, valStr);
+            entry.value = _ttof(valStr);
+            data.push_back(entry);
+            rs.MoveNext();
+        }
+    }
+    catch (CDBException* e) { e->Delete(); }
+    return data;
+}
+
+std::vector<ChartEntry> DBHelper::GetWeeklyStats(CString metric)
+{
+    std::vector<ChartEntry> data;
+    if (!Connect()) return data;
+    CRecordset rs(&m_db);
+    try {
+        if (metric != "total_games" && metric != "total_wins" && metric != "top_cup" &&
+            metric != "top_ball" && metric != "total_registrations") return data;
+
+        CString query;
+        query.Format(_T("SELECT stat_date, %s FROM v_weekly_detailed_stats ORDER BY STR_TO_DATE(stat_date, '%%d.%%m.%%Y') ASC"), metric);
+
+        rs.Open(CRecordset::forwardOnly, query, CRecordset::readOnly);
+        while (!rs.IsEOF()) {
+            ChartEntry entry;
+            CString valStr;
+            rs.GetFieldValue((short)0, entry.label);
+            rs.GetFieldValue((short)1, valStr);
+            entry.value = _ttof(valStr);
+            data.push_back(entry);
+            rs.MoveNext();
+        }
+    }
+    catch (CDBException* e) { e->Delete(); }
+    return data;
+}
+
+std::vector<ChartEntry> DBHelper::GetDifficultyPerformance(CString metric)
+{
+    std::vector<ChartEntry> data;
+    if (!Connect()) return data;
+    CRecordset rs(&m_db);
+    try {
+        if (metric != "total_games" && metric != "total_wins" && metric != "win_rate_percent") return data;
+
+        CString query;
+        query.Format(_T("SELECT level_name, %s FROM v_stats_difficulty_performance"), metric);
+
+        rs.Open(CRecordset::forwardOnly, query, CRecordset::readOnly);
+        while (!rs.IsEOF()) {
+            ChartEntry entry;
+            CString valStr;
+            rs.GetFieldValue((short)0, entry.label);
+            rs.GetFieldValue((short)1, valStr);
+            entry.value = _ttof(valStr);
+            data.push_back(entry);
+            rs.MoveNext();
+        }
+    }
+    catch (CDBException* e) { e->Delete(); }
+    return data;
+}
+
+std::vector<ChartEntry> DBHelper::GetHourlyActivity(CString metric)
+{
+    std::vector<ChartEntry> data;
+    if (!Connect()) return data;
+    CRecordset rs(&m_db);
+    try {
+        if (metric != "total_games" && metric != "total_wins") return data;
+
+        CString query;
+        query.Format(_T("SELECT hour_of_day, %s FROM v_stats_hourly_activity ORDER BY hour_of_day"), metric);
+
+        rs.Open(CRecordset::forwardOnly, query, CRecordset::readOnly);
+        while (!rs.IsEOF()) {
+            ChartEntry entry;
+            CString hourStr, valStr;
+            rs.GetFieldValue((short)0, hourStr);
+            rs.GetFieldValue((short)1, valStr);
+
+            entry.label.Format(_T("%s:00"), hourStr);
+            entry.value = _ttof(valStr);
+            data.push_back(entry);
+            rs.MoveNext();
+        }
+    }
+    catch (CDBException* e) { e->Delete(); }
+    return data;
+}
+
+std::vector<ChartEntry> DBHelper::GetLeaderboardWeighted(CString metric)
+{
+    std::vector<ChartEntry> data;
+    if (!Connect()) return data;
+    CRecordset rs(&m_db);
+    try {
+        if (metric != "total_games" && metric != "total_wins" && metric != "rank_score") return data;
+
+        CString query;
+        query.Format(_T("SELECT username, %s FROM v_stats_leaderboard_weighted ORDER BY rank_score DESC LIMIT 10"), metric);
+
+        rs.Open(CRecordset::forwardOnly, query, CRecordset::readOnly);
+        while (!rs.IsEOF()) {
+            ChartEntry entry;
+            CString valStr;
+            rs.GetFieldValue((short)0, entry.label);
+            rs.GetFieldValue((short)1, valStr);
+            entry.value = _ttof(valStr);
+            data.push_back(entry);
+            rs.MoveNext();
+        }
+    }
+    catch (CDBException* e) { e->Delete(); }
+    return data;
+}
+
+std::vector<ChartEntry> DBHelper::GetPositionBias(CString type)
+{
+    std::vector<ChartEntry> data;
+    if (!Connect()) return data;
+    CRecordset rs(&m_db);
+    try {
+        CString query;
+        query.Format(_T("SELECT position_index, occurrences FROM v_stats_position_bias WHERE type COLLATE utf8mb4_unicode_ci LIKE '%s' ORDER BY position_index"), type);
+
+        rs.Open(CRecordset::snapshot, query, CRecordset::readOnly);
+
+        while (!rs.IsEOF()) {
+            ChartEntry entry;
+            CString posStr, valStr;
+
+            rs.GetFieldValue((short)0, posStr);
+            rs.GetFieldValue((short)1, valStr);
+
+            int pos = _ttoi(posStr);
+            if (pos == 1) entry.label = _T("Зліва (1)");
+            else if (pos == 2) entry.label = _T("Центр (2)");
+            else if (pos == 3) entry.label = _T("Справа (3)");
+            else entry.label = posStr;
+
+            entry.value = _ttof(valStr);
+
+            if (type == _T("Ball Position")) entry.color = RGB(100, 200, 100);
+            else entry.color = RGB(100, 100, 255);
+
+            data.push_back(entry);
+            rs.MoveNext();
+        }
+    }
+    catch (CDBException* e) {
+        e->Delete();
+    }
+    return data;
+}
+
+std::vector<ChartEntry> DBHelper::GetSpeedVsWinrate(CString metric)
+{
+    std::vector<ChartEntry> data;
+    if (!Connect()) return data;
+    CRecordset rs(&m_db);
+    try {
+        if (metric != "shuffle_count" && metric != "total_games" && metric != "win_rate") return data;
+
+        CString query;
+        query.Format(_T("SELECT animation_speed_ms, %s FROM v_stats_speed_vs_winrate ORDER BY animation_speed_ms DESC"), metric);
+
+        rs.Open(CRecordset::forwardOnly, query, CRecordset::readOnly);
+        while (!rs.IsEOF()) {
+            ChartEntry entry;
+            CString speedStr, valStr;
+            rs.GetFieldValue((short)0, speedStr);
+            rs.GetFieldValue((short)1, valStr);
+
+            entry.label.Format(_T("%s мс"), speedStr);
+            entry.value = _ttof(valStr);
+            data.push_back(entry);
+            rs.MoveNext();
+        }
+    }
+    catch (CDBException* e) { e->Delete(); }
+    return data;
+}
+
+std::vector<ChartEntry> DBHelper::GetTopByDifficulty(CString levelName, CString metric)
+{
+    std::vector<ChartEntry> data;
+    if (!Connect()) return data;
+    CRecordset rs(&m_db);
+    try {
+        if (metric != "games_played" && metric != "wins" && metric != "win_rate") return data;
+
+        CString query;
+        CString safeName = levelName;
+        safeName.Replace(_T("'"), _T("''"));
+
+        query.Format(_T("SELECT username, %s FROM v_stats_top_by_difficulty WHERE level_name = '%s' ORDER BY wins DESC LIMIT 10"), metric, safeName);
+
+        rs.Open(CRecordset::forwardOnly, query, CRecordset::readOnly);
+        while (!rs.IsEOF()) {
+            ChartEntry entry;
+            CString valStr;
+            rs.GetFieldValue((short)0, entry.label);
+            rs.GetFieldValue((short)1, valStr);
+            entry.value = _ttof(valStr);
+            data.push_back(entry);
+            rs.MoveNext();
+        }
+    }
+    catch (CDBException* e) { e->Delete(); }
+    return data;
+}
+
+std::vector<ChartEntry> DBHelper::GetTopPlayers(CString metric)
+{
+    std::vector<ChartEntry> data;
+    if (!Connect()) return data;
+    CRecordset rs(&m_db);
+    try {
+        if (metric != "total_games" && metric != "total_wins" && metric != "win_rate_percent") return data;
+
+        CString query;
+        query.Format(_T("SELECT username, %s FROM v_stats_top_players LIMIT 10"), metric);
+
+        rs.Open(CRecordset::forwardOnly, query, CRecordset::readOnly);
+        while (!rs.IsEOF()) {
+            ChartEntry entry;
+            CString valStr;
+            rs.GetFieldValue((short)0, entry.label);
+            rs.GetFieldValue((short)1, valStr);
+            entry.value = _ttof(valStr);
+            data.push_back(entry);
+            rs.MoveNext();
+        }
+    }
+    catch (CDBException* e) { e->Delete(); }
+    return data;
+}
+
+std::vector<ChartEntry> DBHelper::GetUserRetention(CString metric)
+{
+    std::vector<ChartEntry> data;
+    if (!Connect()) return data;
+    CRecordset rs(&m_db);
+    try {
+        if (metric != "days_active" && metric != "total_sessions") return data;
+
+        CString query;
+        query.Format(_T("SELECT username, %s FROM v_stats_user_retention ORDER BY %s DESC LIMIT 15"), metric, metric);
+
+        rs.Open(CRecordset::forwardOnly, query, CRecordset::readOnly);
+        while (!rs.IsEOF()) {
+            ChartEntry entry;
+            CString valStr;
+            rs.GetFieldValue((short)0, entry.label);
+            rs.GetFieldValue((short)1, valStr);
+            entry.value = _ttof(valStr);
+            data.push_back(entry);
+            rs.MoveNext();
+        }
+    }
+    catch (CDBException* e) { e->Delete(); }
+    return data;
+}
+
+std::vector<ChartEntry> DBHelper::GetSkyboxPopularity()
+{
+    std::vector<ChartEntry> data;
+    if (!Connect()) return data;
+    CRecordset rs(&m_db);
+    try {
+        rs.Open(CRecordset::forwardOnly, _T("SELECT selected_skybox, users_count FROM v_stats_skybox_popularity"), CRecordset::readOnly);
+        const TCHAR* skyboxNames[] = { _T("Ставок"), _T("Футбольне поле"), _T("Нічне поле"), _T("Галявина"), _T("Сорселе 1"), _T("Сорселе 2"), _T("Сорселе 3") };
+
+        while (!rs.IsEOF()) {
+            ChartEntry entry;
+            CString idStr, valStr;
+            rs.GetFieldValue((short)0, idStr);
+            rs.GetFieldValue((short)1, valStr);
+
+            int idx = _ttoi(idStr);
+            if (idx >= 0 && idx < 7) entry.label = skyboxNames[idx];
+            else entry.label.Format(_T("Skybox %d"), idx);
+
+            entry.value = _ttof(valStr);
+            data.push_back(entry);
+            rs.MoveNext();
+        }
+    }
+    catch (CDBException* e) { e->Delete(); }
+    return data;
+}
+
+std::vector<ChartEntry> DBHelper::GetTableMatPopularity()
+{
+    std::vector<ChartEntry> data;
+    if (!Connect()) return data;
+    CRecordset rs(&m_db);
+    try {
+        rs.Open(CRecordset::forwardOnly, _T("SELECT selected_tab_mat, users_count FROM v_stats_tab_mat_popularity"), CRecordset::readOnly);
+        const TCHAR* matNames[] = { _T("Какао"), _T("Бежевий"), _T("Шоколад"), _T("Світло-кор."), _T("Оливка"), _T("Оранж") };
+
+        while (!rs.IsEOF()) {
+            ChartEntry entry;
+            CString idStr, valStr;
+            rs.GetFieldValue((short)0, idStr);
+            rs.GetFieldValue((short)1, valStr);
+
+            int idx = _ttoi(idStr);
+            if (idx >= 0 && idx < 6) entry.label = matNames[idx];
+            else entry.label.Format(_T("Material %d"), idx);
+
+            entry.value = _ttof(valStr);
+            data.push_back(entry);
+            rs.MoveNext();
+        }
+    }
+    catch (CDBException* e) { e->Delete(); }
+    return data;
+}
+
+std::vector<ChartEntry> DBHelper::GetCarpetMatPopularity()
+{
+    std::vector<ChartEntry> data;
+    if (!Connect()) return data;
+    CRecordset rs(&m_db);
+    try {
+        rs.Open(CRecordset::forwardOnly, _T("SELECT selected_carp_mat, users_count FROM v_stats_carp_mat_popularity"), CRecordset::readOnly);
+        const TCHAR* matNames[] = { _T("Червоний"), _T("Синій"), _T("Темно-черв."), _T("Зелений"), _T("Світло-син."), _T("Веселка") };
+
+        while (!rs.IsEOF()) {
+            ChartEntry entry;
+            CString idStr, valStr;
+            rs.GetFieldValue((short)0, idStr);
+            rs.GetFieldValue((short)1, valStr);
+
+            int idx = _ttoi(idStr);
+            if (idx >= 0 && idx < 6) entry.label = matNames[idx];
+            else entry.label.Format(_T("Carpet %d"), idx);
+
+            entry.value = _ttof(valStr);
+            data.push_back(entry);
+            rs.MoveNext();
+        }
+    }
+    catch (CDBException* e) { e->Delete(); }
+    return data;
 }

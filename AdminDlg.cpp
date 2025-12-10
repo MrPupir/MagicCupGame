@@ -31,6 +31,10 @@ void CAdminDlg::DoDataExchange(CDataExchange* pDX)
     DDX_Control(pDX, IDC_EDT_DIFF_SPEED, m_edtDiffSpeed);
     DDX_Control(pDX, IDC_CHARTCONTROLCTRL1, m_chartControl);
     DDX_Control(pDX, IDC_COMBO_CHART_TYPE, m_comboChartType);
+    DDX_Control(pDX, IDC_COMBO_CHART_METRIC, m_comboChartMetric);
+    DDX_Control(pDX, IDC_COMBO_CHART_FILTER, m_comboChartFilter);
+    DDX_Control(pDX, IDC_STATIC_CHART_METRIC, m_lblMetric);
+    DDX_Control(pDX, IDC_STATIC_CHART_FILTER, m_lblFilter);
     DDX_Control(pDX, IDC_CHECK_3D, m_check3D);
 }
 
@@ -50,6 +54,8 @@ BEGIN_MESSAGE_MAP(CAdminDlg, CDialogEx)
     ON_BN_CLICKED(IDC_BTN_EXP_WORD, &CAdminDlg::OnBnClickedBtnExpWord)
     ON_BN_CLICKED(IDC_BTN_COLORS, &CAdminDlg::OnBnClickedBtnColors)
     ON_CBN_SELCHANGE(IDC_COMBO_CHART_TYPE, &CAdminDlg::OnCbnSelchangeComboChartType)
+    ON_CBN_SELCHANGE(IDC_COMBO_CHART_METRIC, &CAdminDlg::OnCbnSelchangeComboChartMetric)
+    ON_CBN_SELCHANGE(IDC_COMBO_CHART_FILTER, &CAdminDlg::OnCbnSelchangeComboChartFilter)
 END_MESSAGE_MAP()
 
 
@@ -64,9 +70,7 @@ BOOL CAdminDlg::OnInitDialog()
 	m_comboMode.AddString(_T("Діаграми"));
 	m_comboMode.SetCurSel(0);
 
-    m_comboChartType.AddString(_T("Топ гравців (Win)"));
-    m_comboChartType.AddString(_T("Активність (Ігри)"));
-    m_comboChartType.SetCurSel(0);
+    SetupChartOptions();
 
     m_check3D.SetCheck(BST_CHECKED);
 
@@ -76,6 +80,27 @@ BOOL CAdminDlg::OnInitDialog()
     RefreshChart();
 
 	return TRUE;
+}
+
+void CAdminDlg::SetupChartOptions()
+{
+    m_comboChartType.ResetContent();
+    m_comboChartType.AddString(_T("Щомісячна динаміка"));
+    m_comboChartType.AddString(_T("Щотижнева динаміка"));
+    m_comboChartType.AddString(_T("Ефективність складності"));
+    m_comboChartType.AddString(_T("Активність по годинах"));
+    m_comboChartType.AddString(_T("Рейтинг (зважений)"));
+    m_comboChartType.AddString(_T("Зсув позиції (Bias)"));
+    m_comboChartType.AddString(_T("Швидкість vs WinRate"));
+    m_comboChartType.AddString(_T("Топ за складністю"));
+    m_comboChartType.AddString(_T("Топ гравців (заг.)"));
+    m_comboChartType.AddString(_T("Утримання (Retention)"));
+    m_comboChartType.AddString(_T("Популярність Skybox"));
+    m_comboChartType.AddString(_T("Популярність Столів"));
+    m_comboChartType.AddString(_T("Популярність Килимків"));
+
+    m_comboChartType.SetCurSel(0);
+    UpdateMetricCombo();
 }
 
 void CAdminDlg::OnCbnSelchangeComboAdmMode()
@@ -259,89 +284,277 @@ void CAdminDlg::OnBnClickedBtnDiffDown()
     }
 }
 
+void CAdminDlg::OnCbnSelchangeComboChartType()
+{
+    UpdateMetricCombo();
+}
+
+void CAdminDlg::OnCbnSelchangeComboChartMetric()
+{
+    RefreshChart();
+}
+
+void CAdminDlg::OnCbnSelchangeComboChartFilter()
+{
+    RefreshChart();
+}
+
+void CAdminDlg::UpdateMetricCombo()
+{
+    int type = m_comboChartType.GetCurSel();
+    m_comboChartMetric.ResetContent();
+    m_comboChartMetric.ShowWindow(SW_SHOW);
+    m_lblMetric.ShowWindow(SW_SHOW);
+
+    switch (type)
+    {
+    case 0:
+    case 1:
+        m_comboChartMetric.AddString(_T("Всього ігор"));
+        m_comboChartMetric.AddString(_T("Всього перемог"));
+        m_comboChartMetric.AddString(_T("Найпоп. стаканчик"));
+        m_comboChartMetric.AddString(_T("Найпоп. кулька"));
+        m_comboChartMetric.AddString(_T("Нові реєстрації"));
+        break;
+    case 2:
+        m_comboChartMetric.AddString(_T("Всього ігор"));
+        m_comboChartMetric.AddString(_T("Всього перемог"));
+        m_comboChartMetric.AddString(_T("Відсоток перемог (%)"));
+        break;
+    case 3:
+        m_comboChartMetric.AddString(_T("Всього ігор"));
+        m_comboChartMetric.AddString(_T("Всього перемог"));
+        break;
+    case 4:
+        m_comboChartMetric.AddString(_T("Рейтинг (очки)"));
+        m_comboChartMetric.AddString(_T("Всього ігор"));
+        m_comboChartMetric.AddString(_T("Всього перемог"));
+        break;
+    case 5:
+        m_comboChartMetric.ShowWindow(SW_HIDE);
+        m_lblMetric.ShowWindow(SW_HIDE);
+        break;
+    case 6:
+        m_comboChartMetric.AddString(_T("Відсоток перемог (%)"));
+        m_comboChartMetric.AddString(_T("Всього ігор"));
+        m_comboChartMetric.AddString(_T("Кількість ходів"));
+        break;
+    case 7:
+        m_comboChartMetric.AddString(_T("Всього перемог"));
+        m_comboChartMetric.AddString(_T("Всього ігор"));
+        m_comboChartMetric.AddString(_T("Відсоток перемог (%)"));
+        break;
+    case 8:
+        m_comboChartMetric.AddString(_T("Всього перемог"));
+        m_comboChartMetric.AddString(_T("Всього ігор"));
+        m_comboChartMetric.AddString(_T("Відсоток перемог (%)"));
+        break;
+    case 9:
+        m_comboChartMetric.AddString(_T("Днів активності"));
+        m_comboChartMetric.AddString(_T("Всього сесій"));
+        break;
+    default:
+        m_comboChartMetric.ShowWindow(SW_HIDE);
+        m_lblMetric.ShowWindow(SW_HIDE);
+        break;
+    }
+
+    if (m_comboChartMetric.GetCount() > 0) m_comboChartMetric.SetCurSel(0);
+
+    UpdateFilterCombo();
+}
+
+void CAdminDlg::UpdateFilterCombo()
+{
+    int type = m_comboChartType.GetCurSel();
+    m_comboChartFilter.ResetContent();
+    BOOL bShowFilter = FALSE;
+
+    if (type == 5) {
+        bShowFilter = TRUE;
+        m_comboChartFilter.AddString(_T("Позиція кульки"));
+        m_comboChartFilter.AddString(_T("Вибір гравця"));
+        m_comboChartFilter.SetCurSel(0);
+    }
+    else if (type == 7) {
+        bShowFilter = TRUE;
+        std::vector<CString> diffs = DBHelper::GetInstance().GetUniqueDifficultyNames();
+        for (const auto& name : diffs) {
+            m_comboChartFilter.AddString(name);
+        }
+        if (m_comboChartFilter.GetCount() > 0) m_comboChartFilter.SetCurSel(0);
+    }
+
+    m_comboChartFilter.ShowWindow(bShowFilter ? SW_SHOW : SW_HIDE);
+    m_lblFilter.ShowWindow(bShowFilter ? SW_SHOW : SW_HIDE);
+
+    RefreshChart();
+}
+
+CString CAdminDlg::GetCurrentMetricDBName()
+{
+    int type = m_comboChartType.GetCurSel();
+    int metricIdx = m_comboChartMetric.GetCurSel();
+
+    if (metricIdx < 0 && m_comboChartMetric.IsWindowVisible()) return _T("");
+
+    switch (type)
+    {
+    case 0: case 1:
+        if (metricIdx == 0) return _T("total_games");
+        if (metricIdx == 1) return _T("total_wins");
+        if (metricIdx == 2) return _T("top_cup");
+        if (metricIdx == 3) return _T("top_ball");
+        if (metricIdx == 4) return _T("total_registrations");
+        break;
+    case 2:
+        if (metricIdx == 0) return _T("total_games");
+        if (metricIdx == 1) return _T("total_wins");
+        if (metricIdx == 2) return _T("win_rate_percent");
+        break;
+    case 3:
+        if (metricIdx == 0) return _T("total_games");
+        if (metricIdx == 1) return _T("total_wins");
+        break;
+    case 4:
+        if (metricIdx == 0) return _T("rank_score");
+        if (metricIdx == 1) return _T("total_games");
+        if (metricIdx == 2) return _T("total_wins");
+        break;
+    case 6:
+        if (metricIdx == 0) return _T("win_rate");
+        if (metricIdx == 1) return _T("total_games");
+        if (metricIdx == 2) return _T("shuffle_count");
+        break;
+    case 7:
+        if (metricIdx == 0) return _T("wins");
+        if (metricIdx == 1) return _T("games_played");
+        if (metricIdx == 2) return _T("win_rate");
+        break;
+    case 8:
+        if (metricIdx == 0) return _T("total_wins");
+        if (metricIdx == 1) return _T("total_games");
+        if (metricIdx == 2) return _T("win_rate_percent");
+        break;
+    case 9:
+        if (metricIdx == 0) return _T("days_active");
+        if (metricIdx == 1) return _T("total_sessions");
+        break;
+    }
+    return _T("");
+}
+
 void CAdminDlg::RefreshChart()
 {
     BOOL bIs3D = (m_check3D.GetCheck() == BST_CHECKED);
     m_chartControl.SetEnable3D(bIs3D);
-
-    int type = m_comboChartType.GetCurSel();
-    if (type == 0) {
-        m_chartControl.SetChartTitle(_T("Результаты Турнира: Top 3"));
-    }
-    else {
-        m_chartControl.SetChartTitle(_T("Активність гравців"));
-    }
-
-    m_chartControl.SetCoefA(1.5);
-    m_chartControl.SetCoefB(0.8);
-
     m_chartControl.SetShowGrid(TRUE);
     m_chartControl.SetShowLabels(TRUE);
-
     m_chartControl.SetBackColor(RGB(255, 255, 255));
-    m_chartControl.SetAxisColor(RGB(50, 50, 50));
-    m_chartControl.SetGridColor(RGB(220, 220, 220));
+    m_chartControl.SetCoefA(1.0f);
+    m_chartControl.SetCoefB(1.0f);
+
+    int type = m_comboChartType.GetCurSel();
+    CString title; m_comboChartType.GetLBText(type, title);
+
+    if (m_comboChartMetric.IsWindowVisible()) {
+        CString metricName;
+        int mIdx = m_comboChartMetric.GetCurSel();
+        if (mIdx >= 0) {
+            m_comboChartMetric.GetLBText(mIdx, metricName);
+            title += _T(" : ") + metricName;
+        }
+    }
+    m_chartControl.SetChartTitle(title);
+
+    std::vector<ChartEntry> data;
+    CString dbMetric = GetCurrentMetricDBName();
+
+    switch (type)
+    {
+    case 0: data = DBHelper::GetInstance().GetMonthlyStats(dbMetric); break;
+    case 1: data = DBHelper::GetInstance().GetWeeklyStats(dbMetric); break;
+    case 2: data = DBHelper::GetInstance().GetDifficultyPerformance(dbMetric); break;
+    case 3: data = DBHelper::GetInstance().GetHourlyActivity(dbMetric); break;
+    case 4: data = DBHelper::GetInstance().GetLeaderboardWeighted(dbMetric); break;
+    case 5: {
+        CString filter = _T("Ball Position");
+        int sel = m_comboChartFilter.GetCurSel();
+        if (sel == 1) {
+            filter = _T("User Selection");
+        }
+        data = DBHelper::GetInstance().GetPositionBias(filter);
+        break;
+    }
+    case 6: data = DBHelper::GetInstance().GetSpeedVsWinrate(dbMetric); break;
+    case 7: {
+        CString levelName;
+        int fIdx = m_comboChartFilter.GetCurSel();
+        if (fIdx >= 0) {
+            m_comboChartFilter.GetLBText(fIdx, levelName);
+            data = DBHelper::GetInstance().GetTopByDifficulty(levelName, dbMetric);
+        }
+        break;
+    }
+    case 8: data = DBHelper::GetInstance().GetTopPlayers(dbMetric); break;
+    case 9: data = DBHelper::GetInstance().GetUserRetention(dbMetric); break;
+    case 10: data = DBHelper::GetInstance().GetSkyboxPopularity(); break;
+    case 11: data = DBHelper::GetInstance().GetTableMatPopularity(); break;
+    case 12: data = DBHelper::GetInstance().GetCarpetMatPopularity(); break;
+    }
+
+    COLORREF chartPalette[] = {
+        RGB(0x1F,0x77,0xB4),
+        RGB(0xFF,0x7F,0x0E),
+        RGB(0x2C,0xA0,0x2C),
+        RGB(0xD6,0x27,0x28),
+        RGB(0x94,0x67,0xBD),
+        RGB(0x8C,0x56,0x4B),
+        RGB(0xE3,0x77,0xC2),
+        RGB(0x7F,0x7F,0x7F),
+        RGB(0xBC,0xBD,0x22),
+        RGB(0x17,0xBE,0xCF)
+    };
+    int paletteSize = sizeof(chartPalette) / sizeof(COLORREF);
 
     SAFEARRAYBOUND rgsabound[1];
     rgsabound[0].lLbound = 0;
-    rgsabound[0].cElements = 9;
-    SAFEARRAY* psaColors = SafeArrayCreate(VT_R4, 1, rgsabound);
+    rgsabound[0].cElements = (ULONG)max(1, data.size());
+    SAFEARRAY* psaColors = SafeArrayCreate(VT_I4, 1, rgsabound);
 
     long idx = 0;
-    float val;
+    for (const auto& item : data) {
+        long colorVal;
 
-    val = 0.78f; SafeArrayPutElement(psaColors, &idx, &val); idx++;
-    val = 0.20f; SafeArrayPutElement(psaColors, &idx, &val); idx++;
-    val = 0.20f; SafeArrayPutElement(psaColors, &idx, &val); idx++;
+        if (item.color != 0xFFFFFFFF) {
+            colorVal = (long)item.color;
+        }
+        else {
+            colorVal = (long)chartPalette[idx % paletteSize];
+        }
 
-    val = 0.20f; SafeArrayPutElement(psaColors, &idx, &val); idx++;
-    val = 0.70f; SafeArrayPutElement(psaColors, &idx, &val); idx++;
-    val = 0.20f; SafeArrayPutElement(psaColors, &idx, &val); idx++;
-
-    val = 0.20f; SafeArrayPutElement(psaColors, &idx, &val); idx++;
-    val = 0.20f; SafeArrayPutElement(psaColors, &idx, &val); idx++;
-    val = 0.78f; SafeArrayPutElement(psaColors, &idx, &val); idx++;
+        SafeArrayPutElement(psaColors, &idx, &colorVal);
+        idx++;
+    }
 
     VARIANT vColors;
     VariantInit(&vColors);
-    vColors.vt = VT_ARRAY | VT_R4;
+    vColors.vt = VT_ARRAY | VT_I4;
     vColors.parray = psaColors;
-
     m_chartControl.SetColors(vColors);
     VariantClear(&vColors);
 
-    struct ChartItem { CString name; double p1; double p2; };
-
-    std::vector<ChartItem> items;
-    if (type == 0) {
-        items = {
-            { _T("PlayerOne"),    5.0, 10.0 },
-            { _T("CyberSlayer"),  8.0, 12.0 },
-            { _T("Winner2000"),  15.0, 15.0 }
-        };
-    }
-    else {
-        items = {
-            { _T("Пн"), 10.0, 2.0 },
-            { _T("Вт"), 12.0, 5.0 },
-            { _T("Ср"), 8.0,  3.0 },
-            { _T("Чт"), 20.0, 10.0 },
-            { _T("Пт"), 25.0, 15.0 }
-        };
-    }
-
     SAFEARRAYBOUND outerBound;
     outerBound.lLbound = 0;
-    outerBound.cElements = (ULONG)items.size();
-
+    outerBound.cElements = (ULONG)data.size();
     SAFEARRAY* psaOuter = SafeArrayCreate(VT_VARIANT, 1, &outerBound);
 
     LONG rowIdx = 0;
-    for (auto& it : items)
+    for (auto& it : data)
     {
         SAFEARRAYBOUND innerBound;
         innerBound.lLbound = 0;
-        innerBound.cElements = 3;
+        innerBound.cElements = 2;
         SAFEARRAY* psaInner = SafeArrayCreate(VT_VARIANT, 1, &innerBound);
 
         VARIANT v;
@@ -349,21 +562,14 @@ void CAdminDlg::RefreshChart()
 
         VariantInit(&v);
         v.vt = VT_BSTR;
-        v.bstrVal = SysAllocString(it.name);
+        v.bstrVal = SysAllocString(it.label);
         SafeArrayPutElement(psaInner, &colIdx, &v);
         VariantClear(&v);
         colIdx++;
 
         VariantInit(&v);
         v.vt = VT_R8;
-        v.dblVal = it.p1;
-        SafeArrayPutElement(psaInner, &colIdx, &v);
-        VariantClear(&v);
-        colIdx++;
-
-        VariantInit(&v);
-        v.vt = VT_R8;
-        v.dblVal = it.p2;
+        v.dblVal = it.value;
         SafeArrayPutElement(psaInner, &colIdx, &v);
         VariantClear(&v);
 
@@ -381,7 +587,11 @@ void CAdminDlg::RefreshChart()
     vData.vt = VT_ARRAY | VT_VARIANT;
     vData.parray = psaOuter;
 
-    m_chartControl.LoadData(vData);
+    if (!data.empty()) {
+        m_chartControl.LoadData(vData);
+    }
+    else {
+    }
 
     VariantClear(&vData);
 }
@@ -413,12 +623,7 @@ void CAdminDlg::OnBnClickedBtnExpWord()
 
 void CAdminDlg::OnBnClickedBtnColors()
 {
-    AfxMessageBox(_T("Діалог налаштування кольорів (Coming soon)"));
-}
-
-void CAdminDlg::OnCbnSelchangeComboChartType()
-{
-    RefreshChart();
+    AfxMessageBox(_T("Функція налаштування кольорів у розробці."));
 }
 
 void CAdminDlg::OnOK() {}

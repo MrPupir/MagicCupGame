@@ -46,6 +46,15 @@ struct GameSettings {
     int carpetMatIndex;
 };
 
+struct ChartEntry {
+    CString label;
+    double value;
+    COLORREF color;
+
+    ChartEntry() : label(_T("")), value(0.0), color(0xFFFFFFFF) {}
+    ChartEntry(CString l, double v, COLORREF c = 0xFFFFFFFF) : label(l), value(v), color(c) {}
+};
+
 class DBHelper
 {
 public:
@@ -72,6 +81,21 @@ public:
     int GetUserSkybox(int userId);
     bool SaveGameSettings(int userId, const GameSettings& settings);
     bool GetGameSettings(int userId, GameSettings& settings);
+
+    std::vector<CString> GetUniqueDifficultyNames();
+    std::vector<ChartEntry> GetMonthlyStats(CString metric);
+    std::vector<ChartEntry> GetWeeklyStats(CString metric);
+    std::vector<ChartEntry> GetDifficultyPerformance(CString metric);
+    std::vector<ChartEntry> GetHourlyActivity(CString metric);
+    std::vector<ChartEntry> GetLeaderboardWeighted(CString metric);
+    std::vector<ChartEntry> GetPositionBias(CString type);
+    std::vector<ChartEntry> GetSpeedVsWinrate(CString metric);
+    std::vector<ChartEntry> GetTopByDifficulty(CString levelName, CString metric);
+    std::vector<ChartEntry> GetTopPlayers(CString metric);
+    std::vector<ChartEntry> GetUserRetention(CString metric);
+    std::vector<ChartEntry> GetSkyboxPopularity();
+    std::vector<ChartEntry> GetTableMatPopularity();
+    std::vector<ChartEntry> GetCarpetMatPopularity();
 
 private:
     CDatabase m_db;

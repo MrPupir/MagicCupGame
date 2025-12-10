@@ -83,7 +83,10 @@
 #define IDC_GRP_GAME_OBJ                1100
 #define IDC_BTN_CUP_COLOR               1101
 #define IDC_BTN_BALL_COLOR              1102
-
+#define IDC_STATIC_CHART_METRIC         1110
+#define IDC_COMBO_CHART_METRIC          1111
+#define IDC_STATIC_CHART_FILTER         1112
+#define IDC_COMBO_CHART_FILTER          1113
 #define ID_SETTINGS                     32771
 #define ID_ADMIN                        32772
 #define ID_ACCELERATOR32774             32774
