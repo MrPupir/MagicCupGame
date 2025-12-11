@@ -128,6 +128,8 @@ void CAdminDlg::UpdateVisibility()
     std::vector<int> groupChart = {
         IDC_GRP_CHART, IDC_CHARTCONTROLCTRL1,
         IDC_STATIC_CHART_TYPE, IDC_COMBO_CHART_TYPE,
+        IDC_STATIC_CHART_METRIC, IDC_COMBO_CHART_METRIC,
+        IDC_STATIC_CHART_FILTER, IDC_COMBO_CHART_FILTER,
         IDC_BTN_SORT_ASC, IDC_BTN_SORT_DESC,
         IDC_CHECK_3D, IDC_BTN_COLORS,
         IDC_BTN_EXP_EXCEL, IDC_BTN_EXP_WORD
@@ -136,6 +138,10 @@ void CAdminDlg::UpdateVisibility()
     ShowControls(groupDiff, (index == 0));
     ShowControls(groupStats, (index == 1));
     ShowControls(groupChart, (index == 2));
+
+    if (index == 2) {
+        UpdateMetricCombo();
+    }
 }
 
 void CAdminDlg::ShowControls(const std::vector<int>& ids, BOOL bShow)
