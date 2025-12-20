@@ -1094,11 +1094,13 @@ void CMagicCupGameView::DrawHUD()
     sprintf_s(bufDiff, "[ %s ]", (LPCSTR)CT2A(m_selectedLevel.name));
     lines[lineCount++] = bufDiff;
 
+    bool ableToGame = (m_gameState == GAME_NONE || m_gameState == GAME_WAITING);
+
     if (m_gameState == GAME_SHUFFLING) {
         sprintf_s(buf2, "Перемішування: %d / %d", m_shuffleStep + 1, m_selectedLevel.shuffleCount);
         lines[lineCount++] = buf2;
     }
-    else if (m_gameState == GAME_NONE && m_selectedCup == 0) {
+    else if (ableToGame && m_selectedCup <= 0) {
         sprintf_s(buf2, "ENTER - Старт");
         lines[lineCount++] = buf2;
     }
@@ -1962,7 +1964,9 @@ void CMagicCupGameView::OnKeyDown(UINT nChar, UINT nRepCnt, UINT nFlags)
         break;
     }
 
-    if (m_gameState == GAME_NONE && m_selectedCup == 0 && nChar == VK_RETURN) {
+    bool ableToGame = (m_gameState == GAME_NONE || m_gameState == GAME_WAITING);
+
+    if (ableToGame && m_selectedCup <= 0 && nChar == VK_RETURN) {
         StartNewGame();
     }
     else if (m_gameState == GAME_GUESSING && nChar >= '1' && nChar <= '3') {
