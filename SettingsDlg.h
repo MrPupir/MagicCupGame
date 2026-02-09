@@ -75,6 +75,8 @@ public:
     BOOL m_bCrossBorder;
     int m_nCrossThick;
 
+    BOOL m_bDisabledDifficulty;
+
 private:
     void UpdateFontPreviewLabel(const FontConfig& cfg, int labelID);
     void ChooseFont(FontConfig& cfg, int labelID);

@@ -1819,11 +1819,6 @@ CMagicCupGameDoc* CMagicCupGameView::GetDocument() const // встроена неотлаженна
 
 void CMagicCupGameView::OnSettings()
 {
-    if (m_gameState != GAME_NONE && m_gameState != GAME_WAITING) {
-        AfxMessageBox(_T("Налаштування доступні лише перед початком гри!"));
-        return;
-    }
-
     CSettingsDlg dlg;
     dlg.m_nInitialId = m_selectedLevel.id;
     dlg.m_nInitialSkybox = m_currentSkyboxIndex;
@@ -1840,6 +1835,8 @@ void CMagicCupGameView::OnSettings()
     for (const auto& mat : m_carpetMats) {
         dlg.m_carpetNames.push_back(mat.name);
     }
+
+    dlg.m_bDisabledDifficulty = (this->m_gameState != GAME_NONE);
 
     if (dlg.DoModal() == IDOK) {
         m_selectedLevel = dlg.m_selectedLevel;
@@ -1862,7 +1859,10 @@ void CMagicCupGameView::OnSettings()
         int currentUserId = pApp->m_nCurrentUserID;
 
         if (currentUserId != -1) {
-            DBHelper::GetInstance().SaveUserDifficulty(currentUserId, m_selectedLevel.id);
+            if (this->m_gameState != GAME_NONE) {
+                DBHelper::GetInstance().SaveUserDifficulty(currentUserId, m_selectedLevel.id);
+            }
+
             DBHelper::GetInstance().SaveGameSettings(currentUserId, m_gameSettings);
         }
 
@@ -1964,7 +1964,7 @@ void CMagicCupGameView::OnKeyDown(UINT nChar, UINT nRepCnt, UINT nFlags)
         break;
     }
 
-    bool ableToGame = (m_gameState == GAME_NONE || m_gameState == GAME_WAITING);
+    bool ableToGame = (m_gameState == GAME_NONE);
 
     if (ableToGame && m_selectedCup <= 0 && nChar == VK_RETURN) {
         StartNewGame();

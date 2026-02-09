@@ -128,6 +128,11 @@ BOOL CSettingsDlg::OnInitDialog()
     }
     m_comboDifficulty.SetCurSel(selectedIndex);
 
+    if (m_bDisabledDifficulty)
+    {
+        m_comboDifficulty.EnableWindow(FALSE);
+    }
+
     if (!m_skyboxNames.empty()) {
         for (const auto& name : m_skyboxNames) m_comboSkybox.AddString(name);
         if (m_nInitialSkybox >= 0 && m_nInitialSkybox < m_skyboxNames.size())
