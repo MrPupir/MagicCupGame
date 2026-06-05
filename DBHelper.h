@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include <afxdb.h>
 #include <vector>
 
@@ -55,6 +55,50 @@ struct ChartEntry {
     ChartEntry(CString l, double v, COLORREF c = 0xFFFFFFFF) : label(l), value(v), color(c) {}
 };
 
+struct PlayerListEntry {
+    int userId;
+    CString username;
+};
+
+struct PlayerStats {
+    int userId;
+    CString username;
+    CString roleName;
+    CString signedUpAt;
+    CString currentDifficultyName;
+    int totalGames;
+    int totalWins;
+    int totalLosses;
+    double winRatePercent;
+    CString firstPlayed;
+    CString lastPlayed;
+    int gamesLast24h;
+    int gamesLast7d;
+    int gamesLast30d;
+    CString favouriteDifficulty;
+    CString favouriteSkybox;
+    CString favouriteTabMat;
+    CString favouriteCarpMat;
+};
+
+struct PlayerBreakdownRow {
+    int difficultyId;
+    CString levelName;
+    int sortOrder;
+    int totalGames;
+    int totalWins;
+    double winRatePercent;
+};
+
+struct PlayerSessionRow {
+    long long sessionId;
+    CString playedAt;
+    int ballPosition;
+    int selectedCup;
+    bool isWin;
+    CString levelName;
+};
+
 class DBHelper
 {
 public:
@@ -97,8 +141,16 @@ public:
     std::vector<ChartEntry> GetTableMatPopularity();
     std::vector<ChartEntry> GetCarpetMatPopularity();
 
+    std::vector<PlayerListEntry> GetAllPlayers();
+    bool GetPlayerStats(int userId, PlayerStats& outStats);
+    std::vector<PlayerBreakdownRow> GetPlayerBreakdown(int userId);
+    std::vector<PlayerSessionRow> GetPlayerRecentSessions(int userId, int limit = 50);
+
+    CString GetLastDbError() const { return m_lastError; }
+
 private:
     CDatabase m_db;
+    CString m_lastError;
     DBHelper() {};
 
     CString JsonVal(const CString& json, const CString& key);

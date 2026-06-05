@@ -1,49 +1,136 @@
-#include "pch.h"
+п»ї#include "pch.h"
 #include "DBHelper.h"
 #include <functional>
 #include <string>
 #include <vector>
+#include <bcrypt.h>
+#pragma comment(lib, "bcrypt.lib")
 
-const unsigned int CRC32_POLYNOMIAL = 0xEDB88320;
+#ifndef STATUS_SUCCESS
+#define STATUS_SUCCESS ((NTSTATUS)0x00000000L)
+#endif
 
-CString HashPassword(const CString& password)
+static const int    PBKDF2_ITER     = 100000;
+static const ULONG  PBKDF2_SALT_LEN = 16;
+static const ULONG  PBKDF2_HASH_LEN = 32;
+
+static void to_hex(const unsigned char* bytes, size_t len, CString& out) {
+    out.Empty();
+    for (size_t i = 0; i < len; i++) {
+        CString b; b.Format(_T("%02x"), bytes[i]);
+        out += b;
+    }
+}
+
+static bool from_hex(const CString& hex, std::vector<unsigned char>& out) {
+    if (hex.GetLength() % 2 != 0) return false;
+    out.resize(hex.GetLength() / 2);
+    for (int i = 0; i < hex.GetLength(); i += 2) {
+        unsigned int b = 0;
+        if (_stscanf_s(hex.Mid(i, 2), _T("%x"), &b) != 1) return false;
+        out[i / 2] = (unsigned char)b;
+    }
+    return true;
+}
+
+static void random_salt(unsigned char* salt, ULONG len) {
+    NTSTATUS s = BCryptGenRandom(NULL, salt, len, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+    if (s != STATUS_SUCCESS) {
+        srand((unsigned)(GetTickCount() ^ (unsigned)(uintptr_t)salt));
+        for (ULONG i = 0; i < len; i++) salt[i] = (unsigned char)(rand() & 0xFF);
+    }
+}
+
+static bool pbkdf2_sha256(const std::string& pw,
+                          const unsigned char* salt, ULONG saltLen,
+                          ULONG iter,
+                          unsigned char* out, ULONG outLen) {
+    BCRYPT_ALG_HANDLE hAlg = NULL;
+    NTSTATUS s = BCryptOpenAlgorithmProvider(&hAlg, BCRYPT_SHA256_ALGORITHM,
+                                             NULL, BCRYPT_ALG_HANDLE_HMAC_FLAG);
+    if (s != STATUS_SUCCESS) return false;
+    s = BCryptDeriveKeyPBKDF2(hAlg,
+                              (PUCHAR)pw.data(), (ULONG)pw.size(),
+                              (PUCHAR)salt, saltLen,
+                              iter, out, outLen, 0);
+    BCryptCloseAlgorithmProvider(hAlg, 0);
+    return s == STATUS_SUCCESS;
+}
+
+static CString HashPassword(const CString& password)
 {
-    CT2A asciiData(password, CP_UTF8);
-    const unsigned char* pData = (const unsigned char*)asciiData.m_psz;
-    size_t length = strlen(asciiData);
+    unsigned char salt[PBKDF2_SALT_LEN];
+    random_salt(salt, PBKDF2_SALT_LEN);
 
-    unsigned int crc = 0xFFFFFFFF;
+    CT2A utf8(password, CP_UTF8);
+    std::string pwStr(utf8.m_psz);
 
-    for (size_t i = 0; i < length; ++i)
-    {
-        crc ^= pData[i];
-        for (int j = 0; j < 8; ++j)
-        {
-            if (crc & 1)
-                crc = (crc >> 1) ^ CRC32_POLYNOMIAL;
-            else
-                crc = (crc >> 1);
-        }
+    unsigned char hash[PBKDF2_HASH_LEN];
+    if (!pbkdf2_sha256(pwStr, salt, PBKDF2_SALT_LEN, (ULONG)PBKDF2_ITER, hash, PBKDF2_HASH_LEN)) {
+        return _T("");
     }
 
-    crc = ~crc;
+    CString saltHex, hashHex;
+    to_hex(salt, PBKDF2_SALT_LEN, saltHex);
+    to_hex(hash, PBKDF2_HASH_LEN, hashHex);
 
-    CString strHash;
-    strHash.Format(_T("%08X"), crc);
+    CString out;
+    out.Format(_T("pbkdf2$%d$%s$%s"), PBKDF2_ITER, saltHex.GetString(), hashHex.GetString());
+    return out;
+}
 
-    return strHash;
+static bool VerifyPassword(const CString& password, const CString& stored)
+{
+    std::vector<CString> parts;
+    CString cur;
+    for (int i = 0; i < stored.GetLength(); i++) {
+        if (stored[i] == _T('$')) { parts.push_back(cur); cur.Empty(); }
+        else { cur += stored[i]; }
+    }
+    parts.push_back(cur);
+
+    if (parts.size() != 4) return false;
+    if (parts[0] != _T("pbkdf2")) return false;
+
+    int iter = _ttoi(parts[1]);
+    if (iter < 1) return false;
+
+    std::vector<unsigned char> salt, expectedHash;
+    if (!from_hex(parts[2], salt)) return false;
+    if (!from_hex(parts[3], expectedHash)) return false;
+    if (expectedHash.empty()) return false;
+
+    CT2A utf8(password, CP_UTF8);
+    std::string pwStr(utf8.m_psz);
+
+    std::vector<unsigned char> computedHash(expectedHash.size());
+    if (!pbkdf2_sha256(pwStr, salt.data(), (ULONG)salt.size(),
+                       (ULONG)iter,
+                       computedHash.data(), (ULONG)computedHash.size())) {
+        return false;
+    }
+
+    unsigned char diff = 0;
+    for (size_t i = 0; i < expectedHash.size(); i++) {
+        diff |= (unsigned char)(computedHash[i] ^ expectedHash[i]);
+    }
+    return diff == 0;
 }
 
 bool DBHelper::Connect()
 {
     if (m_db.IsOpen()) return true;
     try {
-        CString sConnectionString = _T("Driver={MySQL ODBC 8.0 Unicode Driver};Server=127.0.0.1;Port=3306;Database=MagicCupDB;User=root;Password=;Option=3;");
+#ifdef _WIN64
+        CString sConnectionString = _T("Driver={MySQL ODBC 9.7 Unicode Driver};Server=127.0.0.1;Port=3306;Database=mcg;User=root;Password=root;Option=3;");
+#else
+        CString sConnectionString = _T("Driver={MySQL ODBC 8.0 Unicode Driver};Server=127.0.0.1;Port=3306;Database=mcg;User=root;Password=root;Option=3;");
+#endif
         m_db.OpenEx(sConnectionString, CDatabase::noOdbcDialog);
         return true;
     }
     catch (CDBException* e) {
-        AfxMessageBox(_T("Помилка підключення до БД: ") + e->m_strError);
+        AfxMessageBox(_T("РџРѕРјРёР»РєР° Р·'С”РґРЅР°РЅРЅСЏ Р· Р‘Р”: ") + e->m_strError);
         e->Delete();
         return false;
     }
@@ -60,14 +147,17 @@ int DBHelper::TryLogin(CString username, CString password)
     if (!Connect()) return -1;
     CRecordset rs(&m_db);
     try {
+        CString safeName = username; safeName.Replace(_T("'"), _T("''"));
         CString query;
-        CString passwordHash = HashPassword(password);
-        query.Format(_T("SELECT user_id FROM users WHERE username='%s' AND password_hash='%s'"), username, passwordHash);
+        query.Format(_T("SELECT user_id, password_hash FROM users WHERE username='%s'"), safeName);
         rs.Open(CRecordset::forwardOnly, query, CRecordset::readOnly);
         if (!rs.IsEOF()) {
-            CString val;
-            rs.GetFieldValue((short)0, val);
-            return _ttoi(val);
+            CString idVal, storedHash;
+            rs.GetFieldValue((short)0, idVal);
+            rs.GetFieldValue((short)1, storedHash);
+            if (VerifyPassword(password, storedHash)) {
+                return _ttoi(idVal);
+            }
         }
     }
     catch (CDBException* e) {
@@ -80,18 +170,19 @@ int DBHelper::RegisterUser(CString username, CString password)
 {
     if (!Connect()) return -1;
     CRecordset rs(&m_db);
+    CString safeName = username; safeName.Replace(_T("'"), _T("''"));
     CString checkQuery;
-    checkQuery.Format(_T("SELECT user_id FROM users WHERE username='%s'"), username);
+    checkQuery.Format(_T("SELECT user_id FROM users WHERE username='%s'"), safeName);
     rs.Open(CRecordset::forwardOnly, checkQuery, CRecordset::readOnly);
     if (!rs.IsEOF()) {
-        AfxMessageBox(_T("Користувач з таким ім'ям вже існує!"));
+        AfxMessageBox(_T("РљРѕСЂРёСЃС‚СѓРІР°С‡ Р· С‚Р°РєРёРј С–Рј'СЏРј РІР¶Рµ С–СЃРЅСѓС”!"));
         return -1;
     }
     rs.Close();
     try {
-        CString insertQuery;
         CString passwordHash = HashPassword(password);
-        insertQuery.Format(_T("INSERT INTO users (username, password_hash, role_id) VALUES ('%s', '%s', 2)"), username, passwordHash);
+        CString insertQuery;
+        insertQuery.Format(_T("INSERT INTO users (username, password_hash, role_id) VALUES ('%s', '%s', 2)"), safeName, passwordHash);
         m_db.ExecuteSQL(insertQuery);
         return TryLogin(username, password);
     }
@@ -375,7 +466,7 @@ bool DBHelper::SaveGameSettings(int userId, const GameSettings& s)
         return true;
     }
     catch (CDBException* e) {
-		AfxMessageBox(_T("Помилка збереження налаштувань: ") + e->m_strError);
+		AfxMessageBox(_T("РџРѕРјРёР»РєР° Р·Р°РІР°РЅС‚Р°Р¶РµРЅРЅСЏ РЅР°Р»Р°С€С‚СѓРІР°РЅСЊ: ") + e->m_strError);
         e->Delete();
         return false;
     }
@@ -459,7 +550,7 @@ bool DBHelper::GetGameSettings(int userId, GameSettings& s)
         }
     }
     catch (CDBException* e) {
-		AfxMessageBox(_T("Помилка завантаження налаштувань: ") + e->m_strError);
+		AfxMessageBox(_T("РџРѕРјРёР»РєР° Р·Р±РµСЂРµР¶РµРЅРЅСЏ РЅР°Р»Р°С€С‚СѓРІР°РЅСЊ: ") + e->m_strError);
         e->Delete();
     }
     return false;
@@ -600,7 +691,7 @@ std::vector<ChartEntry> DBHelper::GetLeaderboardWeighted(CString metric)
         if (metric != "total_games" && metric != "total_wins" && metric != "rank_score") return data;
 
         CString query;
-        query.Format(_T("SELECT username, %s FROM v_stats_leaderboard_weighted ORDER BY rank_score DESC LIMIT 10"), metric);
+        query.Format(_T("SELECT username, %s FROM v_stats_leaderboard_weighted ORDER BY %s DESC LIMIT 10"), metric, metric);
 
         rs.Open(CRecordset::forwardOnly, query, CRecordset::readOnly);
         while (!rs.IsEOF()) {
@@ -636,18 +727,24 @@ std::vector<ChartEntry> DBHelper::GetPositionBias(CString type)
             rs.GetFieldValue((short)1, valStr);
 
             int pos = _ttoi(posStr);
-            if (pos == 1) entry.label = _T("Зліва (1)");
-            else if (pos == 2) entry.label = _T("Центр (2)");
-            else if (pos == 3) entry.label = _T("Справа (3)");
+            if (pos == 1) entry.label = _T("Р›С–РІР° (1)");
+            else if (pos == 2) entry.label = _T("Р¦РµРЅС‚СЂ (2)");
+            else if (pos == 3) entry.label = _T("РџСЂР°РІР° (3)");
             else entry.label = posStr;
 
             entry.value = _ttof(valStr);
 
-            if (type == _T("Ball Position")) entry.color = RGB(100, 200, 100);
+            if (type == _T("ball")) entry.color = RGB(100, 200, 100);
             else entry.color = RGB(100, 100, 255);
 
             data.push_back(entry);
             rs.MoveNext();
+        }
+
+        double total = 0.0;
+        for (const auto& e : data) total += e.value;
+        if (total > 0.0) {
+            for (auto& e : data) e.value = e.value / total * 100.0;
         }
     }
     catch (CDBException* e) {
@@ -674,7 +771,7 @@ std::vector<ChartEntry> DBHelper::GetSpeedVsWinrate(CString metric)
             rs.GetFieldValue((short)0, speedStr);
             rs.GetFieldValue((short)1, valStr);
 
-            entry.label.Format(_T("%s мс"), speedStr);
+            entry.label.Format(_T("%s РјСЃ"), speedStr);
             entry.value = _ttof(valStr);
             data.push_back(entry);
             rs.MoveNext();
@@ -696,7 +793,7 @@ std::vector<ChartEntry> DBHelper::GetTopByDifficulty(CString levelName, CString 
         CString safeName = levelName;
         safeName.Replace(_T("'"), _T("''"));
 
-        query.Format(_T("SELECT username, %s FROM v_stats_top_by_difficulty WHERE level_name = '%s' ORDER BY wins DESC LIMIT 10"), metric, safeName);
+        query.Format(_T("SELECT username, %s FROM v_stats_top_by_difficulty WHERE level_name = '%s' ORDER BY %s DESC LIMIT 10"), metric, safeName, metric);
 
         rs.Open(CRecordset::forwardOnly, query, CRecordset::readOnly);
         while (!rs.IsEOF()) {
@@ -722,7 +819,7 @@ std::vector<ChartEntry> DBHelper::GetTopPlayers(CString metric)
         if (metric != "total_games" && metric != "total_wins" && metric != "win_rate_percent") return data;
 
         CString query;
-        query.Format(_T("SELECT username, %s FROM v_stats_top_players LIMIT 10"), metric);
+        query.Format(_T("SELECT username, %s FROM v_stats_top_players ORDER BY %s DESC LIMIT 10"), metric, metric);
 
         rs.Open(CRecordset::forwardOnly, query, CRecordset::readOnly);
         while (!rs.IsEOF()) {
@@ -771,8 +868,8 @@ std::vector<ChartEntry> DBHelper::GetSkyboxPopularity()
     if (!Connect()) return data;
     CRecordset rs(&m_db);
     try {
-        rs.Open(CRecordset::forwardOnly, _T("SELECT selected_skybox, users_count FROM v_stats_skybox_popularity"), CRecordset::readOnly);
-        const TCHAR* skyboxNames[] = { _T("Ставок"), _T("Футбольне поле"), _T("Нічне поле"), _T("Галявина"), _T("Сорселе 1"), _T("Сорселе 2"), _T("Сорселе 3") };
+        rs.Open(CRecordset::forwardOnly, _T("SELECT selected_skybox, users_count FROM v_stats_skybox_popularity ORDER BY users_count DESC"), CRecordset::readOnly);
+        const TCHAR* skyboxNames[] = { _T("РЎС‚Р°РІРѕРє"), _T("Р¤СѓС‚Р±РѕР»СЊРЅРµ РїРѕР»Рµ"), _T("РќС–С‡РЅРµ РїРѕР»Рµ"), _T("Р“Р°Р»СЏРІРёРЅР°"), _T("РЎРѕСЂСЃРµР»Рµ 1"), _T("РЎРѕСЂСЃРµР»Рµ 2"), _T("РЎРѕСЂСЃРµР»Рµ 3") };
 
         while (!rs.IsEOF()) {
             ChartEntry entry;
@@ -799,8 +896,8 @@ std::vector<ChartEntry> DBHelper::GetTableMatPopularity()
     if (!Connect()) return data;
     CRecordset rs(&m_db);
     try {
-        rs.Open(CRecordset::forwardOnly, _T("SELECT selected_tab_mat, users_count FROM v_stats_tab_mat_popularity"), CRecordset::readOnly);
-        const TCHAR* matNames[] = { _T("Какао"), _T("Бежевий"), _T("Шоколад"), _T("Світло-кор."), _T("Оливка"), _T("Оранж") };
+        rs.Open(CRecordset::forwardOnly, _T("SELECT selected_tab_mat, users_count FROM v_stats_tab_mat_popularity ORDER BY users_count DESC"), CRecordset::readOnly);
+        const TCHAR* matNames[] = { _T("РљР°РєР°Рѕ"), _T("Р‘РµР¶РµРІРёР№"), _T("РЁРѕРєРѕР»Р°Рґ"), _T("РЎРІС–С‚Р»-РєРѕСЂ."), _T("РћР»РёРІР°"), _T("РћСЂР°РЅР¶") };
 
         while (!rs.IsEOF()) {
             ChartEntry entry;
@@ -827,8 +924,8 @@ std::vector<ChartEntry> DBHelper::GetCarpetMatPopularity()
     if (!Connect()) return data;
     CRecordset rs(&m_db);
     try {
-        rs.Open(CRecordset::forwardOnly, _T("SELECT selected_carp_mat, users_count FROM v_stats_carp_mat_popularity"), CRecordset::readOnly);
-        const TCHAR* matNames[] = { _T("Червоний"), _T("Синій"), _T("Темно-черв."), _T("Зелений"), _T("Світло-син."), _T("Веселка") };
+        rs.Open(CRecordset::forwardOnly, _T("SELECT selected_carp_mat, users_count FROM v_stats_carp_mat_popularity ORDER BY users_count DESC"), CRecordset::readOnly);
+        const TCHAR* matNames[] = { _T("Р§РµСЂРІРѕРЅРёР№"), _T("РЎРёРЅС–Р№"), _T("РўРµРјРЅРѕ-С‡РµСЂРІ."), _T("Р—РµР»РµРЅРёР№"), _T("РЎРІС–С‚Р»-СЃРёРЅ."), _T("Р Р°Р№РґСѓРіР°") };
 
         while (!rs.IsEOF()) {
             ChartEntry entry;
@@ -847,4 +944,160 @@ std::vector<ChartEntry> DBHelper::GetCarpetMatPopularity()
     }
     catch (CDBException* e) { e->Delete(); }
     return data;
+}
+
+std::vector<PlayerListEntry> DBHelper::GetAllPlayers()
+{
+    std::vector<PlayerListEntry> players;
+    if (!Connect()) return players;
+    CRecordset rs(&m_db);
+    try {
+        rs.Open(CRecordset::forwardOnly,
+            _T("SELECT user_id, username FROM users ORDER BY username ASC"),
+            CRecordset::readOnly);
+        while (!rs.IsEOF()) {
+            PlayerListEntry p;
+            CString val;
+            rs.GetFieldValue((short)0, val); p.userId = _ttoi(val);
+            rs.GetFieldValue((short)1, p.username);
+            players.push_back(p);
+            rs.MoveNext();
+        }
+    }
+    catch (CDBException* e) { e->Delete(); }
+    return players;
+}
+
+bool DBHelper::GetPlayerStats(int userId, PlayerStats& out)
+{
+    if (!Connect()) return false;
+    CRecordset rs(&m_db);
+    try {
+        m_lastError.Empty();
+        CString query;
+#ifdef _WIN64
+        query.Format(_T("{CALL sp_get_player_stats(%d)}"), userId);
+#else
+        query.Format(
+            _T("SELECT u.user_id, u.username, r.role_name, u.created_at, ")
+            _T("u.selected_difficulty, dl_cur.level_name, ")
+            _T("COUNT(gs.session_id), ")
+            _T("COALESCE(SUM(CASE WHEN gs.is_win = 1 THEN 1 ELSE 0 END), 0), ")
+            _T("COALESCE(SUM(CASE WHEN gs.is_win = 0 THEN 1 ELSE 0 END), 0), ")
+            _T("COALESCE(ROUND(SUM(CASE WHEN gs.is_win = 1 THEN 1 ELSE 0 END) / NULLIF(COUNT(gs.session_id), 0) * 100, 1), 0), ")
+            _T("MIN(gs.played_at), MAX(gs.played_at), ")
+            _T("SUM(CASE WHEN gs.played_at >= NOW() - INTERVAL 1 DAY THEN 1 ELSE 0 END), ")
+            _T("SUM(CASE WHEN gs.played_at >= NOW() - INTERVAL 7 DAY THEN 1 ELSE 0 END), ")
+            _T("SUM(CASE WHEN gs.played_at >= NOW() - INTERVAL 30 DAY THEN 1 ELSE 0 END), ")
+            _T("(SELECT dl.level_name FROM game_sessions gs2 JOIN difficulty_levels dl ON gs2.difficulty_id = dl.difficulty_id WHERE gs2.user_id = u.user_id GROUP BY dl.difficulty_id, dl.level_name ORDER BY COUNT(*) DESC LIMIT 1), ")
+            _T("JSON_UNQUOTE(JSON_EXTRACT(u.settings, '$.skybox')), ")
+            _T("JSON_UNQUOTE(JSON_EXTRACT(u.settings, '$.tab_mat')), ")
+            _T("JSON_UNQUOTE(JSON_EXTRACT(u.settings, '$.carp_mat')) ")
+            _T("FROM users u ")
+            _T("JOIN roles r ON r.role_id = u.role_id ")
+            _T("LEFT JOIN difficulty_levels dl_cur ON u.selected_difficulty = dl_cur.difficulty_id ")
+            _T("LEFT JOIN game_sessions gs ON gs.user_id = u.user_id ")
+            _T("WHERE u.user_id = %d ")
+            _T("GROUP BY u.user_id, u.username, r.role_name, u.created_at, u.selected_difficulty, dl_cur.level_name, u.settings"),
+            userId);
+#endif
+        rs.Open(CRecordset::forwardOnly, query, CRecordset::readOnly);
+        if (rs.IsEOF()) { m_lastError = _T("РљРѕСЂРёСЃС‚СѓРІР°С‡Р° РЅРµ Р·РЅР°Р№РґРµРЅРѕ"); return false; }
+
+        CString val;
+        rs.GetFieldValue((short)0, val);  out.userId = _ttoi(val);
+        rs.GetFieldValue((short)1, out.username);
+        rs.GetFieldValue((short)2, out.roleName);
+        rs.GetFieldValue((short)3, out.signedUpAt);
+        rs.GetFieldValue((short)4, val);
+        rs.GetFieldValue((short)5, out.currentDifficultyName);
+        rs.GetFieldValue((short)6, val);  out.totalGames = _ttoi(val);
+        rs.GetFieldValue((short)7, val);  out.totalWins = _ttoi(val);
+        rs.GetFieldValue((short)8, val);  out.totalLosses = _ttoi(val);
+        rs.GetFieldValue((short)9, val);  out.winRatePercent = _ttof(val);
+        rs.GetFieldValue((short)10, out.firstPlayed);
+        rs.GetFieldValue((short)11, out.lastPlayed);
+        rs.GetFieldValue((short)12, val); out.gamesLast24h = _ttoi(val);
+        rs.GetFieldValue((short)13, val); out.gamesLast7d = _ttoi(val);
+        rs.GetFieldValue((short)14, val); out.gamesLast30d = _ttoi(val);
+        rs.GetFieldValue((short)15, out.favouriteDifficulty);
+        rs.GetFieldValue((short)16, out.favouriteSkybox);
+        rs.GetFieldValue((short)17, out.favouriteTabMat);
+        rs.GetFieldValue((short)18, out.favouriteCarpMat);
+        return true;
+    }
+    catch (CDBException* e) {
+        m_lastError = e->m_strError;
+        e->Delete();
+        return false;
+    }
+}
+
+std::vector<PlayerBreakdownRow> DBHelper::GetPlayerBreakdown(int userId)
+{
+    std::vector<PlayerBreakdownRow> rows;
+    if (!Connect()) return rows;
+    CRecordset rs(&m_db);
+    try {
+        CString query;
+#ifdef _WIN64
+        query.Format(_T("{CALL sp_get_player_breakdown(%d)}"), userId);
+#else
+        query.Format(
+            _T("SELECT dl.difficulty_id, dl.level_name, dl.sort_order, ")
+            _T("COUNT(gs.session_id), ")
+            _T("COALESCE(SUM(CASE WHEN gs.is_win = 1 THEN 1 ELSE 0 END), 0), ")
+            _T("COALESCE(ROUND(SUM(CASE WHEN gs.is_win = 1 THEN 1 ELSE 0 END) / NULLIF(COUNT(gs.session_id), 0) * 100, 1), 0) ")
+            _T("FROM difficulty_levels dl ")
+            _T("LEFT JOIN game_sessions gs ON gs.difficulty_id = dl.difficulty_id AND gs.user_id = %d ")
+            _T("GROUP BY dl.difficulty_id, dl.level_name, dl.sort_order ")
+            _T("ORDER BY dl.sort_order"),
+            userId);
+#endif
+        rs.Open(CRecordset::forwardOnly, query, CRecordset::readOnly);
+        while (!rs.IsEOF()) {
+            PlayerBreakdownRow r;
+            CString val;
+            rs.GetFieldValue((short)0, val); r.difficultyId = _ttoi(val);
+            rs.GetFieldValue((short)1, r.levelName);
+            rs.GetFieldValue((short)2, val); r.sortOrder = _ttoi(val);
+            rs.GetFieldValue((short)3, val); r.totalGames = _ttoi(val);
+            rs.GetFieldValue((short)4, val); r.totalWins = _ttoi(val);
+            rs.GetFieldValue((short)5, val); r.winRatePercent = _ttof(val);
+            rows.push_back(r);
+            rs.MoveNext();
+        }
+    }
+    catch (CDBException* e) { e->Delete(); }
+    return rows;
+}
+
+std::vector<PlayerSessionRow> DBHelper::GetPlayerRecentSessions(int userId, int limit)
+{
+    std::vector<PlayerSessionRow> rows;
+    if (!Connect()) return rows;
+    CRecordset rs(&m_db);
+    try {
+        CString query;
+        query.Format(
+            _T("SELECT gs.session_id, gs.played_at, gs.ball_position, gs.selected_cup, gs.is_win, dl.level_name ")
+            _T("FROM game_sessions gs JOIN difficulty_levels dl ON gs.difficulty_id = dl.difficulty_id ")
+            _T("WHERE gs.user_id = %d ORDER BY gs.played_at DESC LIMIT %d"),
+            userId, limit);
+        rs.Open(CRecordset::forwardOnly, query, CRecordset::readOnly);
+        while (!rs.IsEOF()) {
+            PlayerSessionRow r;
+            CString val;
+            rs.GetFieldValue((short)0, val); r.sessionId = _ttoi64(val);
+            rs.GetFieldValue((short)1, r.playedAt);
+            rs.GetFieldValue((short)2, val); r.ballPosition = _ttoi(val);
+            rs.GetFieldValue((short)3, val); r.selectedCup = _ttoi(val);
+            rs.GetFieldValue((short)4, val); r.isWin = (_ttoi(val) == 1);
+            rs.GetFieldValue((short)5, r.levelName);
+            rows.push_back(r);
+            rs.MoveNext();
+        }
+    }
+    catch (CDBException* e) { e->Delete(); }
+    return rows;
 }

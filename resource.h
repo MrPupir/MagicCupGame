@@ -44,7 +44,6 @@
 #define IDC_BTN_SORT_ASC                1037
 #define IDC_BTN_SORT_DESC               1038
 #define IDC_CHECK_3D                    1039
-#define IDC_BTN_COLORS                  1040
 #define IDC_BTN_EXP_EXCEL               1041
 #define IDC_BTN_EXP_WORD                1042
 #define IDC_COMBO_SKYBOX				1043

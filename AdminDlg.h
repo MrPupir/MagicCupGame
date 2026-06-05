@@ -39,11 +39,18 @@ public:
 	CStatic m_lblFilter;
 	CButton m_check3D;
 
+	CComboBox m_comboAdmPlayer;
+	CListCtrl m_listAdmGames;
+
 	int m_nSelectedDiffID = -1;
+	int m_nSelectedPlayerID = -1;
 
 	void UpdateVisibility();
 	void ShowControls(const std::vector<int>& ids, BOOL bShow);
 	void RefreshDifficultyList();
+	void SetupPlayerStatsList();
+	void RefreshPlayerCombo();
+	void LoadPlayerStats(int userId);
 
 	void SetupChartOptions();
 	void UpdateMetricCombo();
@@ -64,10 +71,10 @@ public:
 	afx_msg void OnBnClickedCheck3d();
 	afx_msg void OnBnClickedBtnExpExcel();
 	afx_msg void OnBnClickedBtnExpWord();
-	afx_msg void OnBnClickedBtnColors();
 	afx_msg void OnCbnSelchangeComboChartType();
 	afx_msg void OnCbnSelchangeComboChartMetric();
 	afx_msg void OnCbnSelchangeComboChartFilter();
+	afx_msg void OnCbnSelchangeComboAdmPlayer();
 
 	virtual void OnOK();
 };

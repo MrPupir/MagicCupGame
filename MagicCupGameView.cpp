@@ -1,10 +1,10 @@
-// MagicCupGameView.cpp: реализация класса CMagicCupGameView
+п»ї// MagicCupGameView.cpp: СЂРµР°Р»РёР·Р°С†РёСЏ РєР»Р°СЃСЃР° CMagicCupGameView
 //
 
 #include "pch.h"
 #include "framework.h"
-// SHARED_HANDLERS можно определить в обработчиках фильтров просмотра реализации проекта ATL, эскизов
-// и поиска; позволяет совместно использовать код документа в данным проекте.
+// SHARED_HANDLERS РјРѕР¶РЅРѕ РѕРїСЂРµРґРµР»СЏС‚СЊ РІ РїСЂРѕРµРєС‚Р°С… РїСЂРѕСЃРјРѕС‚СЂР°, СЌСЃРєРёР·РѕРІ Рё РїРѕРёСЃРєР° ATL, СЂРµР°Р»РёР·СѓСЋС‰РёС…
+// РІ РєРѕРґРµ; РїРѕР·РІРѕР»СЏРµС‚ СЃРѕРІРјРµСЃС‚РЅРѕ РёСЃРїРѕР»СЊР·РѕРІР°С‚СЊ РєРѕРґ СЂРµР°Р»РёР·Р°С†РёРё СЃ СЌС‚РёРј РїСЂРѕРµРєС‚РѕРј.
 #ifndef SHARED_HANDLERS
 #include "MagicCupGame.h"
 #endif
@@ -25,20 +25,23 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
+#include <GL/glew.h>
 #pragma comment(lib, "glu32.lib")
 #pragma comment(lib, "opengl32.lib")
+#pragma comment(lib, "glew32.lib")
 
 #pragma setlocale("RUSSIAN")
 
 #include "SettingsDlg.h"
 #include "AdminDlg.h"
+#include "ShaderSources.h"
 
 // CMagicCupGameView
 
 IMPLEMENT_DYNCREATE(CMagicCupGameView, CView)
 
 BEGIN_MESSAGE_MAP(CMagicCupGameView, CView)
-    // Стандартные команды печати
+    // РЎС‚Р°РЅРґР°СЂС‚РЅС‹Рµ РєРѕРјР°РЅРґС‹ РїРµС‡Р°С‚Рё
     ON_COMMAND(ID_FILE_PRINT, &CView::OnFilePrint)
     ON_COMMAND(ID_FILE_PRINT_DIRECT, &CView::OnFilePrint)
     ON_COMMAND(ID_FILE_PRINT_PREVIEW, &CView::OnFilePrintPreview)
@@ -56,7 +59,7 @@ BEGIN_MESSAGE_MAP(CMagicCupGameView, CView)
     ON_WM_KEYUP()
 END_MESSAGE_MAP()
 
-// Создание или уничтожение CMagicCupGameView
+// РЎРѕР·РґР°РЅРёРµ РёР»Рё СѓРЅРёС‡С‚РѕР¶РµРЅРёРµ CMagicCupGameView
 
 CMagicCupGameView::CMagicCupGameView() : m_hRC(NULL), m_pDC(NULL)
 {
@@ -95,12 +98,12 @@ CMagicCupGameView::CMagicCupGameView() : m_hRC(NULL), m_pDC(NULL)
     m_velY = 0.0f;
     m_velZ = 0.0f;
 
-    m_selectedLevel = DifficultyLevel{ -1, L"Стандарт", 4, 500 };
+    m_selectedLevel = DifficultyLevel{ -1, L"Р—РІРёС‡Р°Р№РЅР°", 4, 500 };
 
     std::vector<DifficultyLevel> levels = DBHelper::GetInstance().GetDifficultyLevels();
 
     if (levels.empty()) {
-        m_selectedLevel = { -1, _T("Стандарт"), 3, 800 };
+        m_selectedLevel = { -1, _T("Р—РІРёС‡Р°Р№РЅР°"), 3, 800 };
     }
     else {
         CMagicCupGameApp* pApp = (CMagicCupGameApp*)AfxGetApp();
@@ -223,6 +226,17 @@ void CMagicCupGameView::InitOpenGL()
         return;
     }
 
+    glewExperimental = GL_TRUE;
+    GLenum glewStatus = glewInit();
+    if (glewStatus != GLEW_OK) {
+        const char* err = (const char*)glewGetErrorString(glewStatus);
+        CString errStr(err ? err : "unknown");
+        CString msg = _T("glewInit failed: ") + errStr;
+        AfxMessageBox(msg);
+    } else {
+        InitShaders();
+    }
+
     PFNWGLSWAPINTERVALEXTPROC wglSwapIntervalEXT =
         (PFNWGLSWAPINTERVALEXTPROC)wglGetProcAddress("wglSwapIntervalEXT");
 
@@ -285,6 +299,10 @@ void CMagicCupGameView::SetupLighting()
 void CMagicCupGameView::CleanupOpenGL()
 {
     if (m_hRC) {
+        wglMakeCurrent(m_pDC->GetSafeHdc(), m_hRC);
+        m_mainShader.Destroy();
+        m_depthShader.Destroy();
+        m_shadowMap.Destroy();
         wglMakeCurrent(NULL, NULL);
         wglDeleteContext(m_hRC);
         m_hRC = NULL;
@@ -321,63 +339,73 @@ void CMagicCupGameView::OnDraw(CDC* /*pDC*/)
     SwapBuffers(m_pDC->GetSafeHdc());
 }
 
-void CMagicCupGameView::MakeShadowMatrix(GLfloat points[3][3], GLfloat lightPos[4], GLfloat destMat[16])
+void CMagicCupGameView::InitShaders()
 {
-    GLfloat planeCoeff[4];
-    GLfloat dot;
+    CString err;
+    if (!m_mainShader.BuildFromSource(kMainVertSrc, kMainFragSrc, err)) {
+        AfxMessageBox(_T("Main shader error: ") + err);
+        m_shadersReady = false;
+        return;
+    }
+    if (!m_depthShader.BuildFromSource(kDepthVertSrc, kDepthFragSrc, err)) {
+        AfxMessageBox(_T("Depth shader error: ") + err);
+        m_shadersReady = false;
+        return;
+    }
+    if (!m_shadowMap.Create(4096)) {
+        AfxMessageBox(_T("Shadow map FBO failed"));
+        m_shadersReady = false;
+        return;
+    }
+    m_shadersReady = true;
+}
 
-    GLfloat v1[3], v2[3];
+void CMagicCupGameView::RenderShadowPass(const float lightPosWorld[3])
+{
+    Mat4 lightView = Mat4::LookAt(
+        lightPosWorld[0], lightPosWorld[1], lightPosWorld[2],
+        0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f);
 
-    v1[0] = points[1][0] - points[0][0];
-    v1[1] = points[1][1] - points[0][1];
-    v1[2] = points[1][2] - points[0][2];
+    Mat4 lightProj = Mat4::Ortho(-14.0f, 14.0f, -9.0f, 9.0f, 3.0f, 60.0f);
+    m_lightViewProj = Mat4::Multiply(lightProj, lightView);
 
-    v2[0] = points[2][0] - points[0][0];
-    v2[1] = points[2][1] - points[0][1];
-    v2[2] = points[2][2] - points[0][2];
+    m_shadowMap.BeginPass();
 
-    planeCoeff[0] = v1[1] * v2[2] - v1[2] * v2[1];
-    planeCoeff[1] = v1[2] * v2[0] - v1[0] * v2[2];
-    planeCoeff[2] = v1[0] * v2[1] - v1[1] * v2[0];
+    glMatrixMode(GL_PROJECTION);
+    glPushMatrix();
+    glLoadMatrixf(lightProj.m);
 
-    planeCoeff[3] = -(
-        planeCoeff[0] * points[0][0] +
-        planeCoeff[1] * points[0][1] +
-        planeCoeff[2] * points[0][2]
-        );
+    glMatrixMode(GL_MODELVIEW);
+    glPushMatrix();
+    glLoadMatrixf(lightView.m);
 
-    dot = planeCoeff[0] * lightPos[0] +
-        planeCoeff[1] * lightPos[1] +
-        planeCoeff[2] * lightPos[2] +
-        planeCoeff[3] * lightPos[3];
+    glEnable(GL_DEPTH_TEST);
+    glDisable(GL_BLEND);
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_CULL_FACE);
+    glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+    glEnable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(1.5f, 2.5f);
 
-    destMat[0] = dot - lightPos[0] * planeCoeff[0];
-    destMat[4] = 0.0f - lightPos[0] * planeCoeff[1];
-    destMat[8] = 0.0f - lightPos[0] * planeCoeff[2];
-    destMat[12] = 0.0f - lightPos[0] * planeCoeff[3];
+    m_depthShader.Use();
+    DrawTable();
+    DrawGameObjects(true);
+    Shader::Unuse();
 
-    destMat[1] = 0.0f - lightPos[1] * planeCoeff[0];
-    destMat[5] = dot - lightPos[1] * planeCoeff[1];
-    destMat[9] = 0.0f - lightPos[1] * planeCoeff[2];
-    destMat[13] = 0.0f - lightPos[1] * planeCoeff[3];
+    glDisable(GL_POLYGON_OFFSET_FILL);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
-    destMat[2] = 0.0f - lightPos[2] * planeCoeff[0];
-    destMat[6] = 0.0f - lightPos[2] * planeCoeff[1];
-    destMat[10] = dot - lightPos[2] * planeCoeff[2];
-    destMat[14] = 0.0f - lightPos[2] * planeCoeff[3];
+    glMatrixMode(GL_PROJECTION);
+    glPopMatrix();
+    glMatrixMode(GL_MODELVIEW);
+    glPopMatrix();
 
-    destMat[3] = 0.0f - lightPos[3] * planeCoeff[0];
-    destMat[7] = 0.0f - lightPos[3] * planeCoeff[1];
-    destMat[11] = 0.0f - lightPos[3] * planeCoeff[2];
-    destMat[15] = dot - lightPos[3] * planeCoeff[3];
+    m_shadowMap.EndPass(m_windowWidth, m_windowHeight);
 }
 
 void CMagicCupGameView::DrawScene()
 {
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-
-    glLoadIdentity();
-
     float radYaw = m_camYaw * M_PI / 180.0f;
     float radPitch = m_camPitch * M_PI / 180.0f;
 
@@ -385,84 +413,127 @@ void CMagicCupGameView::DrawScene()
     float lookY = sin(radPitch);
     float lookZ = cos(radPitch) * sin(radYaw);
 
+    GLfloat currentLightPos[4] = {
+        m_actLightPos[0], m_actLightPos[1], m_actLightPos[2], 1.0f
+    };
+
+    float flashPosWorld[3];
+    float flashDirWorld[3];
+    {
+        float rightX = -sin(radYaw);
+        float rightZ = cos(radYaw);
+        flashPosWorld[0] = m_camX + rightX * 0.3f;
+        flashPosWorld[1] = m_camY - 0.15f;
+        flashPosWorld[2] = m_camZ + rightZ * 0.3f;
+        flashDirWorld[0] = lookX;
+        flashDirWorld[1] = lookY;
+        flashDirWorld[2] = lookZ;
+    }
+
+    if (m_shadersReady) {
+        float shadowLightPos[3] = { currentLightPos[0], currentLightPos[1], currentLightPos[2] };
+        float len = sqrtf(shadowLightPos[0]*shadowLightPos[0] +
+                          shadowLightPos[1]*shadowLightPos[1] +
+                          shadowLightPos[2]*shadowLightPos[2]);
+        if (len > 0.001f) {
+            float target = 30.0f;
+            shadowLightPos[0] *= target / len;
+            shadowLightPos[1] *= target / len;
+            shadowLightPos[2] *= target / len;
+        } else {
+            shadowLightPos[0] = 10.0f; shadowLightPos[1] = 25.0f; shadowLightPos[2] = 10.0f;
+        }
+        RenderShadowPass(shadowLightPos);
+    }
+
+    glViewport(0, 0, m_windowWidth, m_windowHeight);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    if (m_windowHeight > 0)
+        gluPerspective(45.0, (double)m_windowWidth / m_windowHeight, 1.0, 500.0);
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
     gluLookAt(m_camX, m_camY, m_camZ,
         m_camX + lookX, m_camY + lookY, m_camZ + lookZ,
         0.0f, 1.0f, 0.0f);
 
-    GLfloat currentLightPos[4];
+    GLfloat viewMtx[16];
+    glGetFloatv(GL_MODELVIEW_MATRIX, viewMtx);
 
-    if (m_isFlashlightOn) {
-        float offsetLeft = -1.5f;
-        float offsetUp = 0.2f;
+    Mat4 view; memcpy(view.m, viewMtx, sizeof(viewMtx));
+    Mat4 viewInv = Mat4::Invert(view);
+    Mat4 lightFromView = Mat4::Multiply(m_lightViewProj, viewInv);
 
-        float rightX = -sin(radYaw);
-        float rightZ = cos(radYaw);
-
-        currentLightPos[0] = m_camX - (rightX * offsetLeft);
-        currentLightPos[1] = m_camY + offsetUp;
-        currentLightPos[2] = m_camZ - (rightZ * offsetLeft);
-        currentLightPos[3] = 1.0f;
-
-        GLfloat flashlightDiff[] = { 0.8f, 0.8f, 0.8f, 1.0f };
-        glLightfv(GL_LIGHT0, GL_DIFFUSE, flashlightDiff);
-
-        GLfloat flashlightAmb[] = { 0.2f, 0.2f, 0.2f, 1.0f };
-        glLightfv(GL_LIGHT0, GL_AMBIENT, flashlightAmb);
-    }
-    else {
-        currentLightPos[0] = m_actLightPos[0];
-        currentLightPos[1] = m_actLightPos[1];
-        currentLightPos[2] = m_actLightPos[2];
-        currentLightPos[3] = m_actLightPos[3];
-
-        glLightfv(GL_LIGHT0, GL_DIFFUSE, m_actDiffuse);
-        glLightfv(GL_LIGHT0, GL_AMBIENT, m_actAmbient);
-    }
-
-    glLightfv(GL_LIGHT0, GL_POSITION, currentLightPos);
+    float lpv[4];
+    lpv[0] = viewMtx[0]*currentLightPos[0] + viewMtx[4]*currentLightPos[1] + viewMtx[8]*currentLightPos[2]  + viewMtx[12];
+    lpv[1] = viewMtx[1]*currentLightPos[0] + viewMtx[5]*currentLightPos[1] + viewMtx[9]*currentLightPos[2]  + viewMtx[13];
+    lpv[2] = viewMtx[2]*currentLightPos[0] + viewMtx[6]*currentLightPos[1] + viewMtx[10]*currentLightPos[2] + viewMtx[14];
 
     DrawSky();
-    glEnable(GL_STENCIL_TEST);
 
-    glStencilFunc(GL_ALWAYS, 1, 0xFF);
-    glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+    if (m_shadersReady) {
+        m_mainShader.Use();
 
-    glEnable(GL_LIGHTING);
-    DrawTable();
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, m_shadowMap.Tex());
+        glActiveTexture(GL_TEXTURE0);
 
-    glDisable(GL_LIGHTING);
-    glDisable(GL_TEXTURE_2D);
-    glDisable(GL_DEPTH_TEST);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        m_mainShader.Set1i("uTex", 0);
+        m_mainShader.Set1i("uShadowMap", 1);
+        m_mainShader.SetMat4("uLightFromView", lightFromView.m);
+        m_mainShader.Set3f("uLightPosView", lpv[0], lpv[1], lpv[2]);
 
-    glColor4f(0.0f, 0.0f, 0.0f, (m_actDiffuse[3] == 0.0f && !m_isFlashlightOn) ? 0.0f : 0.5f);
+        bool darkNight = (m_actDiffuse[0] + m_actDiffuse[1] + m_actDiffuse[2] < 0.05f);
+        if (darkNight) {
+            m_mainShader.Set3f("uLightColor", 0.0f, 0.0f, 0.0f);
+            m_mainShader.Set3f("uAmbient", 0.06f, 0.06f, 0.09f);
+        } else {
+            m_mainShader.Set3f("uLightColor", m_actDiffuse[0], m_actDiffuse[1], m_actDiffuse[2]);
+            m_mainShader.Set3f("uAmbient",    m_actAmbient[0]*0.7f, m_actAmbient[1]*0.7f, m_actAmbient[2]*0.7f);
+        }
+        m_mainShader.Set1f("uShininess", 48.0f);
+        m_mainShader.Set1f("uSpecStrength", 0.45f);
+        m_mainShader.Set1f("uShadowMapTexel", 1.0f / (float)m_shadowMap.Size());
+        m_mainShader.Set1i("uReceiveShadow", 1);
+        m_mainShader.Set1i("uLightEnabled", 1);
+        m_mainShader.Set1i("uHasTexture", 0);
 
-    glPushMatrix();
+        m_mainShader.Set1i("uFlashOn", m_isFlashlightOn ? 1 : 0);
+        if (m_isFlashlightOn) {
+            float fpv[3];
+            fpv[0] = viewMtx[0]*flashPosWorld[0] + viewMtx[4]*flashPosWorld[1] + viewMtx[8] *flashPosWorld[2] + viewMtx[12];
+            fpv[1] = viewMtx[1]*flashPosWorld[0] + viewMtx[5]*flashPosWorld[1] + viewMtx[9] *flashPosWorld[2] + viewMtx[13];
+            fpv[2] = viewMtx[2]*flashPosWorld[0] + viewMtx[6]*flashPosWorld[1] + viewMtx[10]*flashPosWorld[2] + viewMtx[14];
+            float fdv[3];
+            fdv[0] = viewMtx[0]*flashDirWorld[0] + viewMtx[4]*flashDirWorld[1] + viewMtx[8] *flashDirWorld[2];
+            fdv[1] = viewMtx[1]*flashDirWorld[0] + viewMtx[5]*flashDirWorld[1] + viewMtx[9] *flashDirWorld[2];
+            fdv[2] = viewMtx[2]*flashDirWorld[0] + viewMtx[6]*flashDirWorld[1] + viewMtx[10]*flashDirWorld[2];
+            float fdl = sqrtf(fdv[0]*fdv[0] + fdv[1]*fdv[1] + fdv[2]*fdv[2]);
+            if (fdl > 0.0001f) { fdv[0]/=fdl; fdv[1]/=fdl; fdv[2]/=fdl; }
 
-    GLfloat shadowMatrix[16];
-    GLfloat points[3][3] = {
-        { -10.0f, -0.99f, -10.0f },
-        { -10.0f, -0.99f,  10.0f },
-        {  10.0f, -0.99f,  10.0f }
-    };
+            m_mainShader.Set3f("uFlashPosView", fpv[0], fpv[1], fpv[2]);
+            m_mainShader.Set3f("uFlashDirView", fdv[0], fdv[1], fdv[2]);
+            m_mainShader.Set3f("uFlashColor",   1.6f, 1.5f, 1.2f);
+            m_mainShader.Set1f("uFlashCosInner", 0.965f);
+            m_mainShader.Set1f("uFlashCosOuter", 0.875f);
+            m_mainShader.Set1f("uFlashRange",    35.0f);
+        }
 
-    MakeShadowMatrix(points, currentLightPos, shadowMatrix);
-    glMultMatrixf(shadowMatrix);
+        glEnable(GL_DEPTH_TEST);
+        DrawTable();
+        DrawGameObjects(false);
 
-    glStencilFunc(GL_EQUAL, 1, 0xFF);
-    glStencilOp(GL_KEEP, GL_KEEP, GL_INCR);
-
-    DrawGameObjects(true);
-
-    glPopMatrix();
-
-    glDisable(GL_STENCIL_TEST);
-    glDisable(GL_BLEND);
-    glEnable(GL_DEPTH_TEST);
-    glEnable(GL_LIGHTING);
-
-    DrawGameObjects();
+        Shader::Unuse();
+    } else {
+        glEnable(GL_LIGHTING);
+        glLightfv(GL_LIGHT0, GL_POSITION, currentLightPos);
+        glLightfv(GL_LIGHT0, GL_DIFFUSE, m_actDiffuse);
+        glLightfv(GL_LIGHT0, GL_AMBIENT, m_actAmbient);
+        DrawTable();
+        DrawGameObjects(false);
+    }
 
     DrawHUD();
 }
@@ -665,9 +736,11 @@ void CMagicCupGameView::DrawTableTop(float width, float depth, float height, flo
 
     if (textureID != 0)
     {
+        glActiveTexture(GL_TEXTURE0);
         glEnable(GL_TEXTURE_2D);
         glBindTexture(GL_TEXTURE_2D, textureID);
         glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+        if (m_shadersReady && m_mainShader.IsValid()) m_mainShader.Set1i("uHasTexture", 1);
     }
 
     auto TexCoord = [&](float x, float z) {
@@ -755,6 +828,7 @@ void CMagicCupGameView::DrawTableTop(float width, float depth, float height, flo
     {
         glBindTexture(GL_TEXTURE_2D, 0);
         glDisable(GL_TEXTURE_2D);
+        if (m_shadersReady && m_mainShader.IsValid()) m_mainShader.Set1i("uHasTexture", 0);
     }
 }
 
@@ -795,6 +869,7 @@ void CMagicCupGameView::DrawTable()
         float halfCD = carpetD / 2.0f;
         float yCarpet = yTop + 0.01f;
 
+        glActiveTexture(GL_TEXTURE0);
         glEnable(GL_TEXTURE_2D);
         glBindTexture(GL_TEXTURE_2D, carpetTexture);
 
@@ -806,6 +881,8 @@ void CMagicCupGameView::DrawTable()
         glColor3f(1.0f, 1.0f, 1.0f);
         glNormal3f(0.0f, 1.0f, 0.0f);
 
+        if (m_shadersReady && m_mainShader.IsValid()) m_mainShader.Set1i("uHasTexture", 1);
+
         glBegin(GL_QUADS);
         glTexCoord2f(0.0f, 1.0f); glVertex3f(-halfCW, yCarpet, -halfCD);
         glTexCoord2f(1.0f, 1.0f); glVertex3f(halfCW, yCarpet, -halfCD);
@@ -815,6 +892,8 @@ void CMagicCupGameView::DrawTable()
 
         glBindTexture(GL_TEXTURE_2D, 0);
         glDisable(GL_TEXTURE_2D);
+        glDisable(GL_BLEND);
+        if (m_shadersReady && m_mainShader.IsValid()) m_mainShader.Set1i("uHasTexture", 0);
     }
 }
 
@@ -1079,15 +1158,15 @@ void CMagicCupGameView::DrawHUD()
     char buf1[256], buf2[256], buf3[256], bufDiff[256];
 
     switch (m_gameState) {
-    case GAME_NONE:          sprintf_s(buf1, "СТАТУС: Меню"); break;
-    case GAME_WAITING:       sprintf_s(buf1, "СТАТУС: Очікування"); break;
-    case GAME_LIFTING_CUPS:  sprintf_s(buf1, "СТАТУС: Увага..."); break;
-    case GAME_SHOWING_BALL:  sprintf_s(buf1, "СТАТУС: Запам'ятай!"); break;
-    case GAME_LOWERING_CUPS: sprintf_s(buf1, "СТАТУС: Готовий?"); break;
-    case GAME_SHUFFLING:     sprintf_s(buf1, "СТАТУС: Стеж за кулькою!"); break;
-    case GAME_GUESSING:      sprintf_s(buf1, "СТАТУС: Твій вибір?"); break;
-    case GAME_RESULT:        sprintf_s(buf1, "СТАТУС: Фінал"); break;
-    default:                 sprintf_s(buf1, "СТАТУС: ?"); break;
+    case GAME_NONE:          sprintf_s(buf1, "РЎС‚Р°С‚СѓСЃ: РќРµРјР°"); break;
+    case GAME_WAITING:       sprintf_s(buf1, "РЎС‚Р°С‚СѓСЃ: РћС‡С–РєСѓРІР°РЅРЅСЏ"); break;
+    case GAME_LIFTING_CUPS:  sprintf_s(buf1, "РЎС‚Р°С‚СѓСЃ: РџС–РґР№РѕРј..."); break;
+    case GAME_SHOWING_BALL:  sprintf_s(buf1, "РЎС‚Р°С‚СѓСЃ: Р—Р°РїР°Рј'СЏС‚Р°Р№!"); break;
+    case GAME_LOWERING_CUPS: sprintf_s(buf1, "РЎС‚Р°С‚СѓСЃ: Р“РѕС‚РѕРІРёР№?"); break;
+    case GAME_SHUFFLING:     sprintf_s(buf1, "РЎС‚Р°С‚СѓСЃ: РЎС‚РµР¶ Р·Р° С‡Р°С€РєР°РјРё!"); break;
+    case GAME_GUESSING:      sprintf_s(buf1, "РЎС‚Р°С‚СѓСЃ: РўСѓС‚ РєСѓР»СЏ?"); break;
+    case GAME_RESULT:        sprintf_s(buf1, "РЎС‚Р°С‚СѓСЃ: Р¤С–РЅР°Р»"); break;
+    default:                 sprintf_s(buf1, "РЎС‚Р°С‚СѓСЃ: ?"); break;
     }
     lines[lineCount++] = buf1;
 
@@ -1097,11 +1176,11 @@ void CMagicCupGameView::DrawHUD()
     bool ableToGame = (m_gameState == GAME_NONE || m_gameState == GAME_WAITING);
 
     if (m_gameState == GAME_SHUFFLING) {
-        sprintf_s(buf2, "Перемішування: %d / %d", m_shuffleStep + 1, m_selectedLevel.shuffleCount);
+        sprintf_s(buf2, "РџРµСЂРµРјС–С€СѓРІР°РЅРЅСЏ: %d / %d", m_shuffleStep + 1, m_selectedLevel.shuffleCount);
         lines[lineCount++] = buf2;
     }
     else if (ableToGame && m_selectedCup <= 0) {
-        sprintf_s(buf2, "ENTER - Старт");
+        sprintf_s(buf2, "ENTER - РЎС‚Р°СЂС‚");
         lines[lineCount++] = buf2;
     }
 
@@ -1109,7 +1188,7 @@ void CMagicCupGameView::DrawHUD()
 
     if ((m_gameState == GAME_RESULT || m_gameState == GAME_NONE) && m_selectedCup >= 0) {
         if (m_gameWon) {
-            sprintf_s(buf3, "*** ПЕРЕМОГА! ***");
+            sprintf_s(buf3, "*** РџРµСЂРµРјРѕРіР°! ***");
             resultColor = RGB(50, 255, 50);
         }
         else {
@@ -1118,7 +1197,7 @@ void CMagicCupGameView::DrawHUD()
             if (ballX < -1.0f) ballPosIndex = 1;
             else if (ballX > 1.0f) ballPosIndex = 3;
 
-            sprintf_s(buf3, "ПРОГРАШ (Кулька: %d)", ballPosIndex);
+            sprintf_s(buf3, "РџРѕСЂР°Р·РєР° (РљСѓР»СЊРєР°: %d)", ballPosIndex);
             resultColor = RGB(255, 80, 80);
         }
         lines[lineCount++] = buf3;
@@ -1187,22 +1266,22 @@ void CMagicCupGameView::DrawHUD()
     };
 
     KeyInfo leftKeys[] = {
-        { "W", "Вперед", 'W' },
-        { "A", "Вліво", 'A' },
-        { "S", "Назад", 'S' },
-        { "D", "Вправо", 'D' }
+        { "W", "Р’РїРµСЂРµРґ", 'W' },
+        { "A", "Р›С–РІРѕ", 'A' },
+        { "S", "РќР°Р·Р°Рґ", 'S' },
+        { "D", "Р’РїСЂР°РІРѕ", 'D' }
     };
 
     KeyInfo rightKeys[] = {
-        { "CTRL", "Вниз", VK_CONTROL },
-        { "SPACE", "Вгору", VK_SPACE },
-        { "LMB", "Обрати", VK_LBUTTON },
-        { "RMB", "Огляд", VK_RBUTTON }
+        { "CTRL", "РЈРЅРёР·", VK_CONTROL },
+        { "SPACE", "РЈРіРѕСЂСѓ", VK_SPACE },
+        { "LMB", "РћР±СЂР°С‚Рё", VK_LBUTTON },
+        { "RMB", "РћРіР»СЏРґ", VK_RBUTTON }
     };
 
     KeyInfo centerKeys[] = {
-        { "F", "Фонарик", 'F' },
-        { "R", "Сброс", 'R' }
+        { "F", "Р›С–С…С‚Р°СЂ", 'F' },
+        { "R", "Р’С–РґРЅРѕРІРёС‚Рё", 'R' }
     };
 
     const int marginBtn = 10;
@@ -1775,26 +1854,26 @@ void CMagicCupGameView::UpdateDifficultyFromDB()
     }
 }
 
-// Печать CMagicCupGameView
+// РџРµС‡Р°С‚СЊ CMagicCupGameView
 
 BOOL CMagicCupGameView::OnPreparePrinting(CPrintInfo* pInfo)
 {
-    // подготовка по умолчанию
+    // Р РµР°Р»РёР·Р°С†РёСЏ РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ
     return DoPreparePrinting(pInfo);
 }
 
 void CMagicCupGameView::OnBeginPrinting(CDC* /*pDC*/, CPrintInfo* /*pInfo*/)
 {
-    // TODO: добавьте дополнительную инициализацию перед печатью
+    // TODO: РґРѕР±Р°РІСЊС‚Рµ РґРѕРїРѕР»РЅРёС‚РµР»СЊРЅСѓСЋ РёРЅРёС†РёР°Р»РёР·Р°С†РёСЋ РїРµСЂРµРґ РїРµС‡Р°С‚СЊСЋ
 }
 
 void CMagicCupGameView::OnEndPrinting(CDC* /*pDC*/, CPrintInfo* /*pInfo*/)
 {
-    // TODO: добавьте очистку после печати
+    // TODO: РґРѕР±Р°РІСЊС‚Рµ РѕС‡РёСЃС‚РєСѓ РїРѕСЃР»Рµ РїРµС‡Р°С‚Рё
 }
 
 
-// Диагностика CMagicCupGameView
+// Р”РёР°РіРЅРѕСЃС‚РёРєР° CMagicCupGameView
 
 #ifdef _DEBUG
 void CMagicCupGameView::AssertValid() const
@@ -1807,7 +1886,7 @@ void CMagicCupGameView::Dump(CDumpContext& dc) const
     CView::Dump(dc);
 }
 
-CMagicCupGameDoc* CMagicCupGameView::GetDocument() const // встроена неотлаженная версия
+CMagicCupGameDoc* CMagicCupGameView::GetDocument() const // РІСЃС‚СЂРѕРµРЅР° РѕС‚Р»Р°РґРѕС‡РЅР°СЏ РІРµСЂСЃРёСЏ
 {
     ASSERT(m_pDocument->IsKindOf(RUNTIME_CLASS(CMagicCupGameDoc)));
     return (CMagicCupGameDoc*)m_pDocument;
@@ -1815,7 +1894,7 @@ CMagicCupGameDoc* CMagicCupGameView::GetDocument() const // встроена неотлаженна
 #endif //_DEBUG
 
 
-// Обработчики сообщений CMagicCupGameView
+// РћР±СЂР°Р±РѕС‚С‡РёРєРё СЃРѕРѕР±С‰РµРЅРёР№ CMagicCupGameView
 
 void CMagicCupGameView::OnSettings()
 {
@@ -1867,7 +1946,7 @@ void CMagicCupGameView::OnSettings()
         }
 
         CString str;
-        str.Format(_T("Налаштування збережено!"),
+        str.Format(_T("РќР°Р»Р°С€С‚СѓРІР°РЅРЅСЏ Р·Р±РµСЂРµР¶РµРЅРѕ!"),
             m_selectedLevel.name,
             m_skyboxPresets[dlg.m_selectedSkyboxIndex].name);
         AfxMessageBox(str);
@@ -2001,49 +2080,49 @@ void CMagicCupGameView::InitMaterialPresets()
     m_skyboxPresets.clear();
 
     m_skyboxPresets.push_back({
-        _T("fishpond"), _T(".jpg"), _T("Ставок"),
+        _T("fishpond"), _T(".jpg"), _T("РЎС‚Р°РІРѕРє"),
         { 10.0f, 20.0f, 10.0f, 1.0f },
         { 0.6f, 0.6f, 0.6f, 1.0f },
         { 0.9f, 0.9f, 0.8f, 1.0f }
         });
 
     m_skyboxPresets.push_back({
-        _T("footballfield"), _T(".jpg"), _T("Футбольне поле"),
+        _T("footballfield"), _T(".jpg"), _T("Р¤СѓС‚Р±РѕР»СЊРЅРµ РїРѕР»Рµ"),
         { -15.0f, 10.0f, 5.0f, 1.0f },
         { 0.4f, 0.4f, 0.4f, 1.0f },
         { 0.8f, 0.8f, 0.8f, 1.0f }
         });
 
     m_skyboxPresets.push_back({
-        _T("footballfield2"), _T(".jpg"), _T("Нічне поле"),
+        _T("footballfield2"), _T(".jpg"), _T("РќС–С‡РЅРµ РїРѕР»Рµ"),
         { 0.0f, 0.0f, 0.0f, 1.0f },
         { 0.1f, 0.1f, 0.1f, 1.0f },
         { 0.0f, 0.0f, 0.0f, 0.0f }
         });
 
     m_skyboxPresets.push_back({
-        _T("meadow"), _T(".jpg"), _T("Галявина"),
+        _T("meadow"), _T(".jpg"), _T("Р“Р°Р»СЏРІРёРЅР°"),
         { 20.0f, 5.0f, 0.0f, 1.0f },
         { 0.3f, 0.2f, 0.2f, 1.0f },
         { 0.9f, 0.6f, 0.4f, 1.0f }
         });
 
     m_skyboxPresets.push_back({
-        _T("sorsele"), _T(".jpg"), _T("Сорселе 1"),
+        _T("sorsele"), _T(".jpg"), _T("РЎРѕСЂСЃРµР»Рµ 1"),
         { 5.0f, 10.0f, 5.0f, 1.0f },
         { 0.25f, 0.25f, 0.3f, 1.0f },
         { 0.8f, 0.8f, 0.9f, 1.0f }
         });
 
     m_skyboxPresets.push_back({
-        _T("sorsele2"), _T(".jpg"), _T("Сорселе 2"),
+        _T("sorsele2"), _T(".jpg"), _T("РЎРѕСЂСЃРµР»Рµ 2"),
         { -5.0f, 12.0f, -5.0f, 1.0f },
         { 0.3f, 0.3f, 0.3f, 1.0f },
         { 0.85f, 0.85f, 0.85f, 1.0f }
         });
 
     m_skyboxPresets.push_back({
-        _T("sorsele3"), _T(".jpg"), _T("Сорселе 3"),
+        _T("sorsele3"), _T(".jpg"), _T("РЎРѕСЂСЃРµР»Рµ 3"),
         { 10.0f, 15.0f, 10.0f, 1.0f },
         { 0.2f, 0.2f, 0.25f, 1.0f },
         { 0.9f, 0.9f, 1.0f, 1.0f }
@@ -2051,21 +2130,21 @@ void CMagicCupGameView::InitMaterialPresets()
 
     m_tableMats.clear();
 
-    m_tableMats.push_back({ _T("cocoa"), _T(".png"), _T("Какао")});
-    m_tableMats.push_back({ _T("beige"), _T(".png"), _T("Бежевий") });
-    m_tableMats.push_back({ _T("chocolate"), _T(".png"), _T("Шоколадний") });
-    m_tableMats.push_back({ _T("light_brown"), _T(".png"), _T("Світло-коричневий") });
-    m_tableMats.push_back({ _T("olive"), _T(".png"), _T("Оливковий") });
-    m_tableMats.push_back({ _T("orange"), _T(".png"), _T("Оранжевий") });
+    m_tableMats.push_back({ _T("cocoa"), _T(".png"), _T("РљР°РєР°Рѕ")});
+    m_tableMats.push_back({ _T("beige"), _T(".png"), _T("Р‘РµР¶РµРІРёР№") });
+    m_tableMats.push_back({ _T("chocolate"), _T(".png"), _T("РЁРѕРєРѕР»Р°РґРЅРёР№") });
+    m_tableMats.push_back({ _T("light_brown"), _T(".png"), _T("РЎРІС–С‚Р»Рѕ-РєРѕСЂРёС‡РЅРµРІРёР№") });
+    m_tableMats.push_back({ _T("olive"), _T(".png"), _T("РћР»РёРІРєРѕРІРёР№") });
+    m_tableMats.push_back({ _T("orange"), _T(".png"), _T("РћСЂР°РЅР¶РµРІРёР№") });
 
     m_carpetMats.clear();
 
-    m_carpetMats.push_back({ _T("red"), _T(".png"), _T("Червоний") });
-    m_carpetMats.push_back({ _T("blue"), _T(".png"), _T("Синій") });
-    m_carpetMats.push_back({ _T("dark_red"), _T(".png"), _T("Темно-червоний") });
-    m_carpetMats.push_back({ _T("green"), _T(".png"), _T("Зелений") });
-    m_carpetMats.push_back({ _T("light_blue"), _T(".png"), _T("Світло-синій") });
-    m_carpetMats.push_back({ _T("rainbow"), _T(".png"), _T("Різнокольоровий") });
+    m_carpetMats.push_back({ _T("red"), _T(".png"), _T("Р§РµСЂРІРѕРЅРёР№") });
+    m_carpetMats.push_back({ _T("blue"), _T(".png"), _T("РЎРёРЅС–Р№") });
+    m_carpetMats.push_back({ _T("dark_red"), _T(".png"), _T("РўРµРјРЅРѕ-С‡РµСЂРІРѕРЅРёР№") });
+    m_carpetMats.push_back({ _T("green"), _T(".png"), _T("Р—РµР»РµРЅРёР№") });
+    m_carpetMats.push_back({ _T("light_blue"), _T(".png"), _T("РЎРІС–С‚Р»Рѕ-СЃРёРЅС–Р№") });
+    m_carpetMats.push_back({ _T("rainbow"), _T(".png"), _T("Р С–Р·РЅРѕРєРѕР»СЊРѕСЂРѕРІРёР№") });
 }
 
 void CMagicCupGameView::SelectSkybox(int index)

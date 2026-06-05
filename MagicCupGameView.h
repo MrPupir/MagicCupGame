@@ -2,12 +2,12 @@
 //
 
 #pragma once
+#include <GL/glew.h>
 #include <GL/GLU.h>
-#define GL_TEXTURE_CUBE_MAP               0x8513
-#define GL_TEXTURE_CUBE_MAP_POSITIVE_X    0x8515
-#define GL_CLAMP_TO_EDGE                  0x812F
-#define GL_TEXTURE_WRAP_R                 0x8072
 #include "DBHelper.h"
+#include "Shader.h"
+#include "ShadowMap.h"
+#include "Mat4.h"
 
 struct SkyboxSettings {
     CString folderName;
@@ -136,10 +136,17 @@ protected:
     GLfloat m_actAmbient[4];
     GLfloat m_actDiffuse[4];
 
+    Shader m_mainShader;
+    Shader m_depthShader;
+    ShadowMap m_shadowMap;
+    bool m_shadersReady = false;
+    Mat4 m_lightViewProj;
+
     BOOL SetupPixelFormat();
     void InitOpenGL();
+    void InitShaders();
     void CleanupOpenGL();
-    void MakeShadowMatrix(GLfloat points[3][3], GLfloat lightPos[4], GLfloat destMat[16]);
+    void RenderShadowPass(const float lightPosWorld[3]);
     void DrawScene();
     void DrawSky();
     void DrawGameObjects(bool bShadow = false);

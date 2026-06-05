@@ -36,6 +36,8 @@ void CAdminDlg::DoDataExchange(CDataExchange* pDX)
     DDX_Control(pDX, IDC_STATIC_CHART_METRIC, m_lblMetric);
     DDX_Control(pDX, IDC_STATIC_CHART_FILTER, m_lblFilter);
     DDX_Control(pDX, IDC_CHECK_3D, m_check3D);
+    DDX_Control(pDX, IDC_COMBO_ADM_PLAYER, m_comboAdmPlayer);
+    DDX_Control(pDX, IDC_LIST_ADM_GAMES, m_listAdmGames);
 }
 
 
@@ -52,10 +54,10 @@ BEGIN_MESSAGE_MAP(CAdminDlg, CDialogEx)
     ON_BN_CLICKED(IDC_CHECK_3D, &CAdminDlg::OnBnClickedCheck3d)
     ON_BN_CLICKED(IDC_BTN_EXP_EXCEL, &CAdminDlg::OnBnClickedBtnExpExcel)
     ON_BN_CLICKED(IDC_BTN_EXP_WORD, &CAdminDlg::OnBnClickedBtnExpWord)
-    ON_BN_CLICKED(IDC_BTN_COLORS, &CAdminDlg::OnBnClickedBtnColors)
     ON_CBN_SELCHANGE(IDC_COMBO_CHART_TYPE, &CAdminDlg::OnCbnSelchangeComboChartType)
     ON_CBN_SELCHANGE(IDC_COMBO_CHART_METRIC, &CAdminDlg::OnCbnSelchangeComboChartMetric)
     ON_CBN_SELCHANGE(IDC_COMBO_CHART_FILTER, &CAdminDlg::OnCbnSelchangeComboChartFilter)
+    ON_CBN_SELCHANGE(IDC_COMBO_ADM_PLAYER, &CAdminDlg::OnCbnSelchangeComboAdmPlayer)
 END_MESSAGE_MAP()
 
 
@@ -73,6 +75,9 @@ BOOL CAdminDlg::OnInitDialog()
     SetupChartOptions();
 
     m_check3D.SetCheck(BST_CHECKED);
+
+    SetupPlayerStatsList();
+    RefreshPlayerCombo();
 
 	UpdateVisibility();
 
@@ -130,8 +135,7 @@ void CAdminDlg::UpdateVisibility()
         IDC_STATIC_CHART_TYPE, IDC_COMBO_CHART_TYPE,
         IDC_STATIC_CHART_METRIC, IDC_COMBO_CHART_METRIC,
         IDC_STATIC_CHART_FILTER, IDC_COMBO_CHART_FILTER,
-        IDC_BTN_SORT_ASC, IDC_BTN_SORT_DESC,
-        IDC_CHECK_3D, IDC_BTN_COLORS,
+        IDC_BTN_SORT_ASC, IDC_BTN_SORT_DESC, IDC_CHECK_3D,
         IDC_BTN_EXP_EXCEL, IDC_BTN_EXP_WORD
     };
 
@@ -484,10 +488,10 @@ void CAdminDlg::RefreshChart()
     case 3: data = DBHelper::GetInstance().GetHourlyActivity(dbMetric); break;
     case 4: data = DBHelper::GetInstance().GetLeaderboardWeighted(dbMetric); break;
     case 5: {
-        CString filter = _T("Ball Position");
+        CString filter = _T("ball");
         int sel = m_comboChartFilter.GetCurSel();
         if (sel == 1) {
-            filter = _T("User Selection");
+            filter = _T("player");
         }
         data = DBHelper::GetInstance().GetPositionBias(filter);
         break;
@@ -627,9 +631,139 @@ void CAdminDlg::OnBnClickedBtnExpWord()
     m_chartControl.ExportToWord();
 }
 
-void CAdminDlg::OnBnClickedBtnColors()
+void CAdminDlg::OnOK() {}
+
+void CAdminDlg::SetupPlayerStatsList()
 {
-    AfxMessageBox(_T("Функція налаштування кольорів у розробці."));
+    m_listAdmGames.SetExtendedStyle(
+        m_listAdmGames.GetExtendedStyle() | LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
+
+    while (m_listAdmGames.DeleteColumn(0)) {}
+
+    m_listAdmGames.InsertColumn(0, _T("Параметр"), LVCFMT_LEFT, 200);
+    m_listAdmGames.InsertColumn(1, _T("Значення"),  LVCFMT_LEFT, 380);
 }
 
-void CAdminDlg::OnOK() {}
+void CAdminDlg::RefreshPlayerCombo()
+{
+    m_comboAdmPlayer.ResetContent();
+    std::vector<PlayerListEntry> players = DBHelper::GetInstance().GetAllPlayers();
+    for (const auto& p : players) {
+        int idx = m_comboAdmPlayer.AddString(p.username);
+        m_comboAdmPlayer.SetItemData(idx, (DWORD_PTR)p.userId);
+    }
+}
+
+void CAdminDlg::OnCbnSelchangeComboAdmPlayer()
+{
+    int idx = m_comboAdmPlayer.GetCurSel();
+    if (idx == CB_ERR) return;
+    m_nSelectedPlayerID = (int)m_comboAdmPlayer.GetItemData(idx);
+    LoadPlayerStats(m_nSelectedPlayerID);
+}
+
+static void InsertKV(CListCtrl& list, int& row, const CString& key, const CString& value)
+{
+    int i = list.InsertItem(row, key);
+    list.SetItemText(i, 1, value);
+    row++;
+}
+
+static CString FormatInt(int v)
+{
+    CString s; s.Format(_T("%d"), v); return s;
+}
+
+static CString FormatDouble(double v, int digits = 1)
+{
+    CString s; s.Format(_T("%.*f"), digits, v); return s;
+}
+
+static CString FormatDateOrDash(const CString& v)
+{
+    return v.IsEmpty() ? CString(_T("—")) : v;
+}
+
+static CString CupName(int pos)
+{
+    switch (pos) {
+        case 1: return _T("Ліворуч");
+        case 2: return _T("По центру");
+        case 3: return _T("Праворуч");
+        default: { CString s; s.Format(_T("#%d"), pos); return s; }
+    }
+}
+
+void CAdminDlg::LoadPlayerStats(int userId)
+{
+    m_listAdmGames.DeleteAllItems();
+    int row = 0;
+
+    PlayerStats stats{};
+    bool ok = DBHelper::GetInstance().GetPlayerStats(userId, stats);
+    if (!ok) {
+        CString err = DBHelper::GetInstance().GetLastDbError();
+        InsertKV(m_listAdmGames, row, _T("Помилка"),
+            err.IsEmpty() ? CString(_T("Не вдалося завантажити дані")) : err);
+        return;
+    }
+
+    InsertKV(m_listAdmGames, row, _T("ID користувача"),   FormatInt(stats.userId));
+    InsertKV(m_listAdmGames, row, _T("Логін"),            stats.username);
+    InsertKV(m_listAdmGames, row, _T("Роль"),             stats.roleName);
+    InsertKV(m_listAdmGames, row, _T("Зареєстровано"),    FormatDateOrDash(stats.signedUpAt));
+    InsertKV(m_listAdmGames, row, _T("Обрана складність"),
+        stats.currentDifficultyName.IsEmpty() ? CString(_T("—")) : stats.currentDifficultyName);
+
+    InsertKV(m_listAdmGames, row, _T(""), _T(""));
+    InsertKV(m_listAdmGames, row, _T("• Загальна статистика •"), _T(""));
+
+    InsertKV(m_listAdmGames, row, _T("Всього матчів"),    FormatInt(stats.totalGames));
+    InsertKV(m_listAdmGames, row, _T("Перемог"),          FormatInt(stats.totalWins));
+    InsertKV(m_listAdmGames, row, _T("Поразок"),          FormatInt(stats.totalLosses));
+    InsertKV(m_listAdmGames, row, _T("Winrate, %"),       FormatDouble(stats.winRatePercent));
+    InsertKV(m_listAdmGames, row, _T("Перший матч"),      FormatDateOrDash(stats.firstPlayed));
+    InsertKV(m_listAdmGames, row, _T("Останній матч"),    FormatDateOrDash(stats.lastPlayed));
+
+    InsertKV(m_listAdmGames, row, _T(""), _T(""));
+    InsertKV(m_listAdmGames, row, _T("• Активність •"), _T(""));
+    InsertKV(m_listAdmGames, row, _T("Матчів за 24г"),    FormatInt(stats.gamesLast24h));
+    InsertKV(m_listAdmGames, row, _T("Матчів за 7 днів"), FormatInt(stats.gamesLast7d));
+    InsertKV(m_listAdmGames, row, _T("Матчів за 30 днів"),FormatInt(stats.gamesLast30d));
+
+    InsertKV(m_listAdmGames, row, _T(""), _T(""));
+    InsertKV(m_listAdmGames, row, _T("• Уподобання •"), _T(""));
+    InsertKV(m_listAdmGames, row, _T("Улюблена складність"),
+        stats.favouriteDifficulty.IsEmpty() ? CString(_T("—")) : stats.favouriteDifficulty);
+    InsertKV(m_listAdmGames, row, _T("Skybox (id)"),  FormatDateOrDash(stats.favouriteSkybox));
+    InsertKV(m_listAdmGames, row, _T("Стіл (id)"),    FormatDateOrDash(stats.favouriteTabMat));
+    InsertKV(m_listAdmGames, row, _T("Килим (id)"),   FormatDateOrDash(stats.favouriteCarpMat));
+
+    std::vector<PlayerBreakdownRow> breakdown = DBHelper::GetInstance().GetPlayerBreakdown(userId);
+    if (!breakdown.empty()) {
+        InsertKV(m_listAdmGames, row, _T(""), _T(""));
+        InsertKV(m_listAdmGames, row, _T("• Розбивка за складністю •"), _T(""));
+        for (const auto& r : breakdown) {
+            CString val;
+            val.Format(_T("%d / %d  (%.1f%%)"), r.totalWins, r.totalGames, r.winRatePercent);
+            InsertKV(m_listAdmGames, row, r.levelName, val);
+        }
+    }
+
+    std::vector<PlayerSessionRow> recent = DBHelper::GetInstance().GetPlayerRecentSessions(userId, 30);
+    if (!recent.empty()) {
+        InsertKV(m_listAdmGames, row, _T(""), _T(""));
+        InsertKV(m_listAdmGames, row, _T("• Останні матчі •"), _T(""));
+        for (const auto& s : recent) {
+            CString key, val;
+            key.Format(_T("%s — %s"),
+                s.playedAt.IsEmpty() ? _T("?") : (LPCTSTR)s.playedAt,
+                (LPCTSTR)s.levelName);
+            val.Format(_T("Кулька %s · вибір %s · %s"),
+                (LPCTSTR)CupName(s.ballPosition),
+                (LPCTSTR)CupName(s.selectedCup),
+                s.isWin ? _T("ПЕРЕМОГА") : _T("поразка"));
+            InsertKV(m_listAdmGames, row, key, val);
+        }
+    }
+}
